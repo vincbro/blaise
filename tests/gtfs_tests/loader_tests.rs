@@ -3,9 +3,15 @@ use ontrack::gtfs;
 #[test]
 fn load_from_zip_test() {
     let zip_path = format!("{}/tests/gtfs3.zip", env!("CARGO_MANIFEST_DIR"));
-    let loader = gtfs::GtfsLoader::from_zip(zip_path).unwrap();
+    let config = gtfs::Config::default();
+    let loader = gtfs::GtfsLoader::new(config)
+        .load_from_zip(zip_path)
+        .unwrap();
 
-    for stop in loader.stops.iter() {
+    if loader.stops().is_empty() {
+        panic!("stops should not be empty");
+    }
+    for stop in loader.stops().iter() {
         if stop.stop_id.is_empty() {
             panic!("stop_id should never be null");
         }
@@ -14,7 +20,10 @@ fn load_from_zip_test() {
         }
     }
 
-    for area in loader.areas.iter() {
+    if loader.areas().is_empty() {
+        panic!("areas should not be empty");
+    }
+    for area in loader.areas().iter() {
         if area.area_id.is_empty() {
             panic!("area_id should never be null");
         }
@@ -27,7 +36,10 @@ fn load_from_zip_test() {
         }
     }
 
-    for agency in loader.agency.iter() {
+    if loader.agency().is_empty() {
+        panic!("agency should not be empty");
+    }
+    for agency in loader.agency().iter() {
         if agency.agency_id.is_empty() {
             panic!("agency_id should never be null");
         }
@@ -45,7 +57,10 @@ fn load_from_zip_test() {
         }
     }
 
-    for route in loader.routes.iter() {
+    if loader.routes().is_empty() {
+        panic!("routes should not be empty");
+    }
+    for route in loader.routes().iter() {
         if route.route_id.is_empty() {
             panic!("route_id should never be null");
         }
@@ -54,7 +69,10 @@ fn load_from_zip_test() {
         }
     }
 
-    for stop_area in loader.stop_areas.iter() {
+    if loader.stop_areas().is_empty() {
+        panic!("stop_areas should not be empty");
+    }
+    for stop_area in loader.stop_areas().iter() {
         if stop_area.stop_id.is_empty() {
             panic!("stop_id should never be null");
         }
@@ -63,7 +81,10 @@ fn load_from_zip_test() {
         }
     }
 
-    for transfer in loader.transfers.iter() {
+    if loader.transfers().is_empty() {
+        panic!("transfers should not be empty");
+    }
+    for transfer in loader.transfers().iter() {
         if transfer.from_stop_id.is_empty() {
             panic!("from_stop_id should never be null");
         }

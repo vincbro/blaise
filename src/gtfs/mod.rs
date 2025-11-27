@@ -5,7 +5,7 @@ use thiserror::Error;
 mod loader;
 mod models;
 
-pub use loader::GtfsLoader;
+pub use loader::*;
 pub use models::*;
 
 #[derive(Error, Debug)]
