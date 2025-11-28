@@ -1,6 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 mod area;
+pub mod fuzzy;
 mod stop;
 pub use area::*;
 pub use stop::*;
