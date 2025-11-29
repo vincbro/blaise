@@ -17,12 +17,12 @@ fn main() {
     let engine = engine::Engine::new().with_gtfs(data);
 
     let start = Instant::now();
-    let area = engine.get_area(&args[2]).unwrap();
-    let stops = engine.get_stops_in_area(&args[2]).unwrap();
+    // let area = engine.get_area(&args[2]).unwrap();
+    // let stops = engine.get_stops_in_area(&args[2]).unwrap();
+    let areas = engine.search_stops_by_name(&args[2]);
     let duration = start.elapsed();
-    println!("{} links to {}", area.id, area.name);
-    for stop in stops.iter() {
-        println!("  {} type: {:?}", stop.name, stop.location_type);
+    for area in areas.iter().take(5) {
+        println!("{}", area.name);
     }
     println!("Operation took: {:?}", duration);
 }

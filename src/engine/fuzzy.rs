@@ -43,5 +43,10 @@ pub fn distance(s1_in: &str, s2_in: &str) -> usize {
 }
 
 pub fn score(s1: &str, s2: &str) -> f64 {
-    distance(s1, s2) as f64 / cmp::max(s1.chars().count(), s2.chars().count()) as f64
+    let dist = distance(s1, s2);
+    if dist == 0 {
+        1.0
+    } else {
+        1.0 - (distance(s1, s2) as f64 / cmp::max(s1.chars().count(), s2.chars().count()) as f64)
+    }
 }

@@ -1,12 +1,21 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{cmp, collections::HashMap, sync::Arc};
 
 mod area;
 pub mod fuzzy;
 mod stop;
 pub use area::*;
+use rayon::{
+    iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator},
+    slice::{ParallelSlice, ParallelSliceMut},
+};
 pub use stop::*;
 
 use crate::gtfs::Gtfs;
+
+trait Identifiable {
+    fn id(&self) -> &str;
+    fn name(&self) -> &str;
+}
 
 #[derive(Clone, Default)]
 pub struct Engine {
@@ -103,4 +112,61 @@ impl Engine {
         let area_id = self.stop_to_area.get(id)?;
         self.get_area(area_id)
     }
+
+    pub fn search_areas_by_name<'a>(&'a self, needle: &'a str) -> Vec<&'a Area> {
+        search(needle, &self.areas)
+    }
+
+    pub fn search_stops_by_name<'a>(&'a self, needle: &'a str) -> Vec<&'a Stop> {
+        search(needle, &self.stops)
+    }
+}
+
+fn search<'a, T>(needle: &'a str, haystack: &'a [T]) -> Vec<&'a T>
+where
+    T: Send + Sync + Identifiable,
+{
+    let threads = rayon::current_num_threads();
+    let chunk_size = haystack.len().div_ceil(threads);
+    let mut results: Vec<Vec<(&T, f64)>> = Vec::with_capacity(threads);
+    for _ in 0..threads {
+        results.push(Vec::with_capacity(chunk_size));
+    }
+    results.par_iter_mut().enumerate().for_each(|(chunk, vec)| {
+        for i in 0..chunk_size {
+            let index = (chunk * chunk_size) + i;
+            if index > haystack.len() - 1 {
+                break;
+            }
+            let entity = &haystack[index];
+            // let score = fuzzy::score(entity.name(), needle);
+            // vec.push((entity, score));
+            vec.push((entity, 0.0));
+        }
+    });
+    let mut results: Vec<_> = results.into_iter().flatten().collect();
+    results.sort_by(|(_, score_a), (_, score_b)| score_b.total_cmp(score_a));
+    results.iter().map(|(entity, _)| *entity).collect()
+}
+
+fn search_v2<'a, T>(needle: &str, haystack: &'a [T]) -> Vec<&'a T>
+where
+    T: Send + Sync + Identifiable,
+{
+    let threads = rayon::current_num_threads();
+    let chunk_size = haystack.len().div_ceil(threads);
+    let mut results: Vec<(&T, f64)> = vec![(&haystack[0], 0.0); haystack.len()];
+    results.par_chunks_mut(chunk_size).enumerate().for_each(
+        |(idx, slice): (usize, &mut [(&T, f64)])| {
+            let slice_len = slice.len();
+            for (i, slot) in slice.iter_mut().enumerate() {
+                let index = idx * slice_len + i;
+                let entity = &haystack[index];
+                // *slot = (entity, fuzzy::score(entity.name(), needle));
+                *slot = (entity, 0.0);
+            }
+        },
+    );
+    results.sort_by(|(_, a), (_, b)| b.total_cmp(a));
+    results.into_iter().map(|(e, _)| e).collect()
 }

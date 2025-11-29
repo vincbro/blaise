@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::gtfs::models::GtfsStop;
+use crate::{engine::Identifiable, gtfs::models::GtfsStop};
 
 #[derive(Debug)]
 pub enum LocationType {
@@ -22,6 +22,16 @@ pub struct Stop {
     pub latitude: f64,
     pub longitude: f64,
     pub location_type: LocationType,
+}
+
+impl Identifiable for Stop {
+    fn id(&self) -> &str {
+        &self.id
+    }
+
+    fn name(&self) -> &str {
+        &self.name
+    }
 }
 
 impl From<GtfsStop> for Stop {
