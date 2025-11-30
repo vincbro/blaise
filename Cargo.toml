@@ -1,5 +1,5 @@
 [package]
-version = "0.0.1"
+version = "0.0.2"
 name = "ontrack"
 description = "Rust implementation of Trafiklab’s ResRobot journey planner for Sweden, providing fast and flexible public transport routing and journey planning."
 authors = ["Vincent Brodin <vincent.brodin21@gmail.com>"]

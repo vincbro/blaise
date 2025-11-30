@@ -1,20 +1,19 @@
 # On Track
 
-High-performance Rust library for routing, searching, and querying GTFS transit data with minimal runtime allocations.
+On Track is a high-performance Rust library for loading, routing, searching, and querying GTFS transit data,
+designed for minimal runtime allocations and fast lookups.
 
+## Implemented
+- Load GTFS data directly from `.zip` archives.
+- In-memory GTFS engine for fast read/query operations.
+- Direct querying of entities by ID. *500ns to 500µs*
+- Fuzzy search for stops and geographic areas.
 
 ## Roadmap
-
-- Fuzzy search for areas and stops
-
-- Distance search for areas and stops
-
-- Simple distance based routing
-
-- Time based routing
-
-
+- Distance-based search for stops and areas.
+- Simple distance-based routing.
+- Time-based routing and schedule-aware journey planning.
 
 ## Refrences
-[GTFS](https://gtfs.org/documentation/schedule/reference/)
-[Data used during development](https://www.trafiklab.se/api/gtfs-datasets/gtfs-sweden/static-specification/)
+- [GTFS Specification](https://gtfs.org/documentation/schedule/reference/)
+- [Development Data (Sweden):](https://www.trafiklab.se/api/gtfs-datasets/gtfs-sweden/static-specification/)
