@@ -1,4 +1,4 @@
-use std::cmp;
+use std::{cmp, mem::swap};
 
 pub fn distance(s1_in: &str, s2_in: &str) -> usize {
     if s1_in == s2_in {
@@ -6,18 +6,19 @@ pub fn distance(s1_in: &str, s2_in: &str) -> usize {
     }
 
     let s1: &str;
-    let s2: &str;
+    let mut s1_len = s1_in.chars().count();
 
-    if s2_in.chars().count() > s1_in.chars().count() {
+    let s2: &str;
+    let mut s2_len = s2_in.chars().count();
+
+    if s2_len > s1_len {
         s1 = s2_in;
         s2 = s1_in;
+        swap(&mut s1_len, &mut s2_len);
     } else {
         s1 = s1_in;
         s2 = s2_in;
     }
-
-    let s1_len = s1.chars().count();
-    let s2_len = s2.chars().count();
     assert!(s1_len >= s2_len);
 
     let mut matrix = vec![vec![0usize; s2_len + 1]; s1_len + 1];

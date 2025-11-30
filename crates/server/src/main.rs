@@ -24,7 +24,7 @@ fn main() {
         println!("{}", value.name());
     }
 
-    const RUNS: u32 = 100;
+    const RUNS: u32 = 1000;
     let start = Instant::now();
     for _ in 0..RUNS {
         // let area = engine.get_area(&args[2]).unwrap();
