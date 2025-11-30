@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
-use crate::gtfs::models::GtfsStop;
+use crate::{engine::Identifiable, gtfs::models::GtfsStop};
 
-#[derive(Debug)]
+#[derive(Debug, Default, Clone)]
 pub enum LocationType {
+    #[default]
     Stop,
     Platform {
         parent_station: Arc<str>,
@@ -15,13 +16,23 @@ pub enum LocationType {
     Boarding,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default, Clone)]
 pub struct Stop {
     pub id: Arc<str>,
     pub name: Arc<str>,
     pub latitude: f64,
     pub longitude: f64,
     pub location_type: LocationType,
+}
+
+impl Identifiable for Stop {
+    fn id(&self) -> &str {
+        &self.id
+    }
+
+    fn name(&self) -> &str {
+        &self.name
+    }
 }
 
 impl From<GtfsStop> for Stop {

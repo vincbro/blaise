@@ -1,6 +1,9 @@
 use std::{env, path::Path, process::exit, time::Instant};
 
-use ontrack::{engine, gtfs};
+use ontrack::{
+    engine::{self, Identifiable},
+    gtfs,
+};
 
 fn main() {
     let args: Vec<_> = env::args().collect();
@@ -16,13 +19,21 @@ fn main() {
         .unwrap();
     let engine = engine::Engine::new().with_gtfs(data);
 
-    let start = Instant::now();
-    let area = engine.get_area(&args[2]).unwrap();
-    let stops = engine.get_stops_in_area(&args[2]).unwrap();
-    let duration = start.elapsed();
-    println!("{} links to {}", area.id, area.name);
-    for stop in stops.iter() {
-        println!("  {} type: {:?}", stop.name, stop.location_type);
+    let results = engine.search_areas_by_name(&args[2]);
+    for value in results.iter().take(5) {
+        println!("{}", value.name());
     }
-    println!("Operation took: {:?}", duration);
+
+    const RUNS: u32 = 1000;
+    let start = Instant::now();
+    for _ in 0..RUNS {
+        // let area = engine.get_area(&args[2]).unwrap();
+        // let stops = engine.get_stops_in_area(&args[2]).unwrap();
+        let _ = engine.search_stops_by_name(&args[2]);
+        // for value in result.iter().take(5) {
+        //     println!("{}", value.name());
+        // }
+    }
+    let duration = start.elapsed();
+    println!("Operation took: {:?}", duration / RUNS);
 }
