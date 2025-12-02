@@ -12,6 +12,7 @@ use crate::gtfs::Gtfs;
 pub trait Identifiable {
     fn id(&self) -> &str;
     fn name(&self) -> &str;
+    fn normalized_name(&self) -> &str;
 }
 
 #[derive(Clone, Default)]
@@ -123,6 +124,7 @@ fn search<'a, T>(needle: &'a str, haystack: &'a [T]) -> Vec<&'a T>
 where
     T: Send + Sync + Identifiable,
 {
+    let normalized_needle = needle.to_lowercase();
     let threads = rayon::current_num_threads();
     let chunk_size = haystack.len().div_ceil(threads);
     let mut results: Vec<Vec<(&T, f64)>> = Vec::with_capacity(threads);
@@ -136,7 +138,7 @@ where
                 break;
             }
             let hay = &haystack[index];
-            let score = fuzzy::score(needle, hay.name());
+            let score = fuzzy::score(&normalized_needle, hay.normalized_name());
             vec.push((hay, score));
         }
     });

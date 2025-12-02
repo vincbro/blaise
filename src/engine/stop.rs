@@ -20,6 +20,7 @@ pub enum LocationType {
 pub struct Stop {
     pub id: Arc<str>,
     pub name: Arc<str>,
+    pub normalized_name: Arc<str>,
     pub latitude: f64,
     pub longitude: f64,
     pub location_type: LocationType,
@@ -32,6 +33,10 @@ impl Identifiable for Stop {
 
     fn name(&self) -> &str {
         &self.name
+    }
+
+    fn normalized_name(&self) -> &str {
+        &self.normalized_name
     }
 }
 
@@ -59,7 +64,8 @@ impl From<GtfsStop> for Stop {
 
         Self {
             id: value.stop_id.into(),
-            name: value.stop_name.into(),
+            name: value.stop_name.clone().into(),
+            normalized_name: value.stop_name.to_lowercase().into(),
             latitude: value.stop_lat,
             longitude: value.stop_lon,
             location_type,
