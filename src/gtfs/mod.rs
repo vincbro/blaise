@@ -20,8 +20,6 @@ pub enum Error {
     Zip(#[from] zip::result::ZipError),
     #[error("Csv error: {0}")]
     Csv(#[from] csv::Error),
-    #[error("Csv file {0} is missing header")]
-    MissingHeader(String),
     #[error("Could not find file with name: {0}")]
     FileNotFound(String),
 }
@@ -59,10 +57,8 @@ impl Gtfs {
         F: FnMut((usize, GtfsStop)),
     {
         match &mut self.storage {
-            StorageType::None => Ok(()),
-            StorageType::Zip(archive) => {
-                stream_from_zip::<GtfsStop, F>(archive, &self.config.stops_file_name, f)
-            }
+            StorageType::Zip(archive) => stream_from_zip(archive, &self.config.stops_path, f),
+            _ => todo!(),
         }
     }
 
@@ -71,10 +67,8 @@ impl Gtfs {
         F: FnMut((usize, GtfsArea)),
     {
         match &mut self.storage {
-            StorageType::None => Ok(()),
-            StorageType::Zip(archive) => {
-                stream_from_zip::<GtfsArea, F>(archive, &self.config.areas_file_name, f)
-            }
+            StorageType::Zip(archive) => stream_from_zip(archive, &self.config.areas_path, f),
+            _ => todo!(),
         }
     }
 
@@ -83,10 +77,8 @@ impl Gtfs {
         F: FnMut((usize, GtfsStopArea)),
     {
         match &mut self.storage {
-            StorageType::None => Ok(()),
-            StorageType::Zip(archive) => {
-                stream_from_zip::<GtfsStopArea, F>(archive, &self.config.stop_areas_file_name, f)
-            }
+            StorageType::Zip(archive) => stream_from_zip(archive, &self.config.stop_areas_path, f),
+            _ => todo!(),
         }
     }
 
@@ -95,10 +87,28 @@ impl Gtfs {
         F: FnMut((usize, GtfsStopTime)),
     {
         match &mut self.storage {
+            StorageType::Zip(archive) => stream_from_zip(archive, &self.config.stop_times_path, f),
+            _ => todo!(),
+        }
+    }
+
+    pub fn stream_transfers<F>(&mut self, f: F) -> Result<(), self::Error>
+    where
+        F: FnMut((usize, GtfsTransfer)),
+    {
+        match &mut self.storage {
             StorageType::None => Ok(()),
-            StorageType::Zip(archive) => {
-                stream_from_zip::<GtfsStopTime, F>(archive, &self.config.stop_times_file_name, f)
-            }
+            StorageType::Zip(archive) => stream_from_zip(archive, &self.config.transfers_path, f),
+        }
+    }
+
+    pub fn stream_routes<F>(&mut self, f: F) -> Result<(), self::Error>
+    where
+        F: FnMut((usize, GtfsRoute)),
+    {
+        match &mut self.storage {
+            StorageType::None => Ok(()),
+            StorageType::Zip(archive) => stream_from_zip(archive, &self.config.routes_path, f),
         }
     }
 }

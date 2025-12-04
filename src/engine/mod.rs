@@ -80,32 +80,44 @@ impl Engine {
             count += 1;
         })?;
         println!("There are {count} stop times");
+
+        let mut count: usize = 0;
+        gtfs.stream_transfers(|(_, _)| {
+            count += 1;
+        })?;
+        println!("There are {count} transfers");
+
+        let mut count: usize = 0;
+        gtfs.stream_routes(|(_, _)| {
+            count += 1;
+        })?;
+        println!("There are {count} routes");
         Ok(self)
     }
 
-    pub fn get_area(&self, id: &str) -> Option<&Area> {
+    pub fn area_by_id(&self, id: &str) -> Option<&Area> {
         let area_index = self.area_lookup.get(id)?;
         Some(&self.areas[*area_index])
     }
 
-    pub fn get_stop(&self, id: &str) -> Option<&Stop> {
+    pub fn stop_by_id(&self, id: &str) -> Option<&Stop> {
         let stop_index = self.stop_lookup.get(id)?;
         Some(&self.stops[*stop_index])
     }
 
-    pub fn get_stops_in_area(&self, id: &str) -> Option<Vec<&Stop>> {
-        let stops = self.area_to_stops.get(id)?;
+    pub fn stops_by_area_id(&self, area_id: &str) -> Option<Vec<&Stop>> {
+        let stops = self.area_to_stops.get(area_id)?;
         Some(
             stops
                 .iter()
-                .filter_map(|stop_id| self.get_stop(stop_id))
+                .filter_map(|stop_id| self.stop_by_id(stop_id))
                 .collect(),
         )
     }
 
-    pub fn get_area_from_stop(&self, id: &str) -> Option<&Area> {
-        let area_id = self.stop_to_area.get(id)?;
-        self.get_area(area_id)
+    pub fn area_by_stop_id(&self, stop_id: &str) -> Option<&Area> {
+        let area_id = self.stop_to_area.get(stop_id)?;
+        self.area_by_id(area_id)
     }
 
     pub fn search_areas_by_name<'a>(&'a self, needle: &'a str) -> Vec<&'a Area> {

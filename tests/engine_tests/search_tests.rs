@@ -11,13 +11,13 @@ fn search_test() {
     let engine = engine::Engine::new().with_gtfs(data).unwrap();
 
     let start = Instant::now();
-    let area = engine.get_area("740098000").unwrap();
+    let area = engine.area_by_id("740098000").unwrap();
     let duration = start.elapsed();
     println!("get_area took: {:?}", duration);
     println!("Area name: {}", area.name);
 
     let start = Instant::now();
-    let stops = engine.get_stops_in_area("740000001").unwrap();
+    let stops = engine.stops_by_area_id("740000001").unwrap();
     let duration = start.elapsed();
     println!("get_stops_in_area took: {:?}", duration);
     for stop in stops.iter() {
@@ -28,7 +28,7 @@ fn search_test() {
     }
 
     let start = Instant::now();
-    let stop = engine.get_stop("9022050000001015").unwrap();
+    let stop = engine.stop_by_id("9022050000001015").unwrap();
     let duration = start.elapsed();
     println!("get_stop took: {:?}", duration);
     println!(
