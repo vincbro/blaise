@@ -5,7 +5,9 @@ use ontrack::{engine, gtfs};
 #[test]
 fn search_test() {
     let zip_path = format!("{}/tests/gtfs3.zip", env!("CARGO_MANIFEST_DIR"));
-    let data = gtfs::Gtfs::new(gtfs::Config::default()).from_zip(zip_path.into());
+    let data = gtfs::Gtfs::new(gtfs::Config::default())
+        .from_zip(zip_path)
+        .unwrap();
     let engine = engine::Engine::new().with_gtfs(data).unwrap();
 
     let start = Instant::now();

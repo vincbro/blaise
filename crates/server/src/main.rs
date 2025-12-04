@@ -14,8 +14,13 @@ fn main() {
 
     let path = Path::new(&args[1]).canonicalize().unwrap();
 
-    let data = gtfs::Gtfs::new(gtfs::Config::default()).from_zip(path);
+    let start = Instant::now();
+    let data = gtfs::Gtfs::new(gtfs::Config::default())
+        .from_zip(path)
+        .unwrap();
     let engine = engine::Engine::new().with_gtfs(data).unwrap();
+    let duration = start.elapsed();
+    println!("Loading took: {:?}", duration);
 
     dbg!(engine.get_stop("9022050010353002").unwrap());
     let start = Instant::now();

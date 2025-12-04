@@ -33,7 +33,7 @@ impl Engine {
         Default::default()
     }
 
-    pub fn with_gtfs(mut self, gtfs: Gtfs) -> Result<Self, gtfs::Error> {
+    pub fn with_gtfs(mut self, mut gtfs: Gtfs) -> Result<Self, gtfs::Error> {
         // Build stop data set
         let mut stop_lookup: HashMap<Arc<str>, usize> = HashMap::new();
         let mut stops: Vec<Stop> = Vec::new();
@@ -74,6 +74,12 @@ impl Engine {
         })?;
         self.stop_to_area = stop_to_area.into();
         self.area_to_stops = area_to_stops.into();
+
+        let mut count: usize = 0;
+        gtfs.stream_stop_times(|(_, _)| {
+            count += 1;
+        })?;
+        println!("There are {count} stop times");
         Ok(self)
     }
 
