@@ -1,15 +1,16 @@
 use serde::de::DeserializeOwned;
 use std::{
-    fs,
-    io::{self, Read},
-    path::Path,
+    fs::File,
+    io::{self},
+    path::PathBuf,
 };
 use thiserror::Error;
+use zip::{ZipArchive, read::ZipFile};
 
 mod config;
 pub mod models;
 pub use config::*;
-use models::{GtfsAgency, GtfsArea, GtfsRoute, GtfsStop, GtfsStopArea, GtfsStopTime, GtfsTransfer};
+use models::*;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -21,102 +22,97 @@ pub enum Error {
     Csv(#[from] csv::Error),
     #[error("Csv file {0} is missing header")]
     MissingHeader(String),
+    #[error("Could not find file with name: {0}")]
+    FileNotFound(String),
 }
 
-/// Used to load GTFS3 data into memory
+#[derive(Default)]
+pub enum StorageType {
+    #[default]
+    None,
+    Zip(PathBuf),
+}
+
 #[derive(Default)]
 pub struct Gtfs {
-    pub(crate) stops: Vec<GtfsStop>,
-    pub(crate) areas: Vec<GtfsArea>,
-    pub(crate) routes: Vec<GtfsRoute>,
-    pub(crate) agency: Vec<GtfsAgency>,
-    pub(crate) stop_areas: Vec<GtfsStopArea>,
-    pub(crate) transfers: Vec<GtfsTransfer>,
-    pub(crate) stop_times: Vec<GtfsStopTime>,
     config: Config,
+    storage: StorageType,
 }
 
 impl Gtfs {
     pub fn new(config: self::Config) -> Self {
         Self {
-            stops: Default::default(),
-            areas: Default::default(),
-            routes: Default::default(),
-            agency: Default::default(),
-            stop_areas: Default::default(),
-            transfers: Default::default(),
-            stop_times: Default::default(),
             config,
+            storage: Default::default(),
         }
     }
 
-    pub fn load_from_zip<P: AsRef<Path>>(mut self, path: P) -> Result<Self, self::Error> {
-        let file = fs::File::open(path)?;
-        let mut archive = zip::ZipArchive::new(file)?;
-        for i in 0..archive.len() {
-            let mut file = archive.by_index(i)?;
-            let name = file.name();
-            match name {
-                val if val == self.config.stops_file_name => parse_csv(&mut self.stops, &mut file)?,
-                val if val == self.config.areas_file_name => parse_csv(&mut self.areas, &mut file)?,
-                val if val == self.config.routes_file_name => {
-                    parse_csv(&mut self.routes, &mut file)?
-                }
-                val if val == self.config.agency_file_name => {
-                    parse_csv(&mut self.agency, &mut file)?
-                }
-                val if val == self.config.stop_areas_file_name => {
-                    parse_csv(&mut self.stop_areas, &mut file)?
-                }
-                val if val == self.config.transfers_file_name => {
-                    parse_csv(&mut self.transfers, &mut file)?
-                }
-                val if val == self.config.stop_times_file_name => {
-                    parse_csv(&mut self.stop_times, &mut file)?
-                }
-                _ => {
-                    #[cfg(debug_assertions)]
-                    println!("Missed {name}")
-                }
-            };
+    pub fn from_zip(mut self, path: PathBuf) -> Self {
+        self.storage = StorageType::Zip(path);
+        self
+    }
+
+    pub fn stream_stops<F>(&self, f: F) -> Result<(), self::Error>
+    where
+        F: FnMut((usize, GtfsStop)),
+    {
+        match &self.storage {
+            StorageType::None => Ok(()),
+            StorageType::Zip(path) => {
+                stream_from_zip::<GtfsStop, F>(path, &self.config.stops_file_name, f)
+            }
         }
-        Ok(self)
     }
 
-    pub fn stops(&self) -> &Vec<GtfsStop> {
-        &self.stops
+    pub fn stream_areas<F>(&self, f: F) -> Result<(), self::Error>
+    where
+        F: FnMut((usize, GtfsArea)),
+    {
+        match &self.storage {
+            StorageType::None => Ok(()),
+            StorageType::Zip(path) => {
+                stream_from_zip::<GtfsArea, F>(path, &self.config.areas_file_name, f)
+            }
+        }
     }
 
-    pub fn areas(&self) -> &Vec<GtfsArea> {
-        &self.areas
-    }
-    pub fn routes(&self) -> &Vec<GtfsRoute> {
-        &self.routes
-    }
-    pub fn agency(&self) -> &Vec<GtfsAgency> {
-        &self.agency
-    }
-    pub fn stop_areas(&self) -> &Vec<GtfsStopArea> {
-        &self.stop_areas
-    }
-    pub fn transfers(&self) -> &Vec<GtfsTransfer> {
-        &self.transfers
-    }
-
-    pub fn stop_times(&self) -> &Vec<GtfsStopTime> {
-        &self.stop_times
+    pub fn stream_stop_areas<F>(&self, f: F) -> Result<(), self::Error>
+    where
+        F: FnMut((usize, GtfsStopArea)),
+    {
+        match &self.storage {
+            StorageType::None => Ok(()),
+            StorageType::Zip(path) => {
+                stream_from_zip::<GtfsStopArea, F>(path, &self.config.stop_areas_file_name, f)
+            }
+        }
     }
 }
 
-fn parse_csv<R, T>(buf: &mut Vec<T>, reader: &mut R) -> Result<(), self::Error>
+fn stream_from_zip<T, F>(zip_path: &PathBuf, file_name: &str, f: F) -> Result<(), self::Error>
 where
-    R: Read,
     T: DeserializeOwned,
+    F: FnMut((usize, T)),
 {
-    let mut rdr = csv::Reader::from_reader(reader);
-    for result in rdr.deserialize() {
-        let record: T = result?;
-        buf.push(record);
-    }
+    let zip_file = File::open(zip_path)?;
+    let mut archive = ZipArchive::new(zip_file)?;
+    let file = get_file(&mut archive, file_name)?;
+    let mut reader = csv::Reader::from_reader(file);
+    reader
+        .deserialize()
+        .filter_map(|a| a.ok())
+        .enumerate()
+        .for_each(f);
     Ok(())
+}
+
+fn get_file<'a>(
+    archive: &'a mut ZipArchive<File>,
+    name: &'a str,
+) -> Result<ZipFile<'a, File>, self::Error> {
+    let index = archive
+        .index_for_name(name)
+        .ok_or(self::Error::FileNotFound(name.to_string()))?;
+    let file = archive.by_index(index)?;
+    Ok(file)
 }

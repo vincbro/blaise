@@ -10,7 +10,7 @@ pub use area::*;
 pub use stop::*;
 pub use stop_time::*;
 
-use crate::gtfs::Gtfs;
+use crate::gtfs::{self, Gtfs};
 
 pub trait Identifiable {
     fn id(&self) -> &str;
@@ -33,42 +33,35 @@ impl Engine {
         Default::default()
     }
 
-    pub fn with_gtfs(mut self, gtfs: Gtfs) -> Self {
-        // Build stop db
+    pub fn with_gtfs(mut self, gtfs: Gtfs) -> Result<Self, gtfs::Error> {
+        // Build stop data set
         let mut stop_lookup: HashMap<Arc<str>, usize> = HashMap::new();
-        self.stops = gtfs
-            .stops
-            .into_iter()
-            .enumerate()
-            .map(|(i, stop)| {
-                let value: Stop = stop.into();
-                stop_lookup.insert(value.id.clone(), i);
-                value
-            })
-            .collect::<Arc<[Stop]>>();
+        let mut stops: Vec<Stop> = Vec::new();
+        gtfs.stream_stops(|(i, stop)| {
+            let value: Stop = stop.into();
+            stop_lookup.insert(value.id.clone(), i);
+            stops.push(value);
+        })?;
+        self.stops = stops.into();
         self.stop_lookup = stop_lookup.into();
 
-        // Build area db
+        // Build area data set
         let mut area_lookup: HashMap<Arc<str>, usize> = HashMap::new();
-        self.areas = gtfs
-            .areas
-            .into_iter()
-            .enumerate()
-            .map(|(i, area)| {
-                let value: Area = area.into();
-                area_lookup.insert(value.id.clone(), i);
-                value
-            })
-            .collect::<Arc<[Area]>>();
+        let mut areas: Vec<Area> = Vec::new();
+        gtfs.stream_areas(|(i, area)| {
+            let value: Area = area.into();
+            area_lookup.insert(value.id.clone(), i);
+            areas.push(value);
+        })?;
+        self.areas = areas.into();
         self.area_lookup = area_lookup.into();
 
+        // Build stop_area data set
         let mut area_to_stops: HashMap<Arc<str>, Vec<Arc<str>>> = HashMap::new();
         let mut stop_to_area: HashMap<Arc<str>, Arc<str>> = HashMap::new();
-        gtfs.stop_areas.into_iter().for_each(|value| {
-            //TEMP
+        gtfs.stream_stop_areas(|(_, value)| {
             let stop_index = self.stop_lookup.get(value.stop_id.as_str()).unwrap();
             let stop_id = self.stops[*stop_index].id.clone();
-            //TEMP
             let area_index = self.area_lookup.get(value.area_id.as_str()).unwrap();
             let area_id = self.areas[*area_index].id.clone();
 
@@ -78,15 +71,10 @@ impl Engine {
             } else {
                 area_to_stops.insert(area_id, vec![stop_id]);
             }
-        });
+        })?;
         self.stop_to_area = stop_to_area.into();
         self.area_to_stops = area_to_stops.into();
-        println!(
-            "stops: {} | stop_to_area: {}",
-            self.stops.len(),
-            self.stop_to_area.len()
-        );
-        self
+        Ok(self)
     }
 
     pub fn get_area(&self, id: &str) -> Option<&Area> {

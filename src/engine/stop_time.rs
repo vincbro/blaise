@@ -1,7 +1,5 @@
 use std::sync::Arc;
 
-use crate::gtfs::models::GtfsStopTime;
-
 #[derive(Debug, Default, Clone)]
 pub enum Timepoint {
     #[default]
