@@ -6,9 +6,11 @@ pub mod fuzzy;
 mod area;
 mod stop;
 mod stop_time;
+mod trip;
 pub use area::*;
 pub use stop::*;
 pub use stop_time::*;
+pub use trip::*;
 
 use crate::gtfs::{self, Gtfs};
 
@@ -22,8 +24,13 @@ pub trait Identifiable {
 pub struct Engine {
     stops: Arc<[Stop]>,
     areas: Arc<[Area]>,
+    trips: Arc<[Trip]>,
+    stop_times: Arc<[StopTime]>,
+
+    // Lookup tables
     stop_lookup: Arc<HashMap<Arc<str>, usize>>,
     area_lookup: Arc<HashMap<Arc<str>, usize>>,
+    trip_lookup: Arc<HashMap<Arc<str>, usize>>,
     area_to_stops: Arc<HashMap<Arc<str>, Vec<Arc<str>>>>,
     stop_to_area: Arc<HashMap<Arc<str>, Arc<str>>>,
 }
@@ -33,6 +40,8 @@ impl Engine {
         Default::default()
     }
 
+    /// Used to stream data gtfs data into the engine
+    /// Depending on the size of the data this can be a long blocking function
     pub fn with_gtfs(mut self, mut gtfs: Gtfs) -> Result<Self, gtfs::Error> {
         // Build stop data set
         let mut stop_lookup: HashMap<Arc<str>, usize> = HashMap::new();
@@ -56,6 +65,25 @@ impl Engine {
         self.areas = areas.into();
         self.area_lookup = area_lookup.into();
 
+        // Build trip data set
+        let mut trip_lookup: HashMap<Arc<str>, usize> = HashMap::new();
+        let mut trips: Vec<Trip> = Vec::new();
+        gtfs.stream_trips(|(i, trip)| {
+            let value: Trip = trip.into();
+            trip_lookup.insert(value.id.clone(), i);
+            trips.push(value);
+        })?;
+        self.trips = trips.into();
+        self.trip_lookup = trip_lookup.into();
+
+        // Build stop_time data set
+        let mut stop_times: Vec<StopTime> = Vec::new();
+        gtfs.stream_stop_times(|(_, stop_time)| {
+            let value: StopTime = stop_time.into();
+            stop_times.push(value);
+        })?;
+        self.stop_times = stop_times.into();
+
         // Build stop_area data set
         let mut area_to_stops: HashMap<Arc<str>, Vec<Arc<str>>> = HashMap::new();
         let mut stop_to_area: HashMap<Arc<str>, Arc<str>> = HashMap::new();
@@ -75,23 +103,6 @@ impl Engine {
         self.stop_to_area = stop_to_area.into();
         self.area_to_stops = area_to_stops.into();
 
-        let mut count: usize = 0;
-        gtfs.stream_stop_times(|(_, _)| {
-            count += 1;
-        })?;
-        println!("There are {count} stop times");
-
-        let mut count: usize = 0;
-        gtfs.stream_transfers(|(_, _)| {
-            count += 1;
-        })?;
-        println!("There are {count} transfers");
-
-        let mut count: usize = 0;
-        gtfs.stream_routes(|(_, _)| {
-            count += 1;
-        })?;
-        println!("There are {count} routes");
         Ok(self)
     }
 

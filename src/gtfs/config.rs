@@ -6,6 +6,7 @@ pub struct Config {
     pub stop_areas_path: String,
     pub transfers_path: String,
     pub stop_times_path: String,
+    pub trips_path: String,
 }
 
 impl Default for Config {
@@ -18,6 +19,7 @@ impl Default for Config {
             stop_areas_path: "stop_areas.txt".into(),
             transfers_path: "transfers.txt".into(),
             stop_times_path: "stop_times.txt".into(),
+            trips_path: "trips.txt".into(),
         }
     }
 }

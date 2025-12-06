@@ -111,6 +111,16 @@ impl Gtfs {
             StorageType::Zip(archive) => stream_from_zip(archive, &self.config.routes_path, f),
         }
     }
+
+    pub fn stream_trips<F>(&mut self, f: F) -> Result<(), self::Error>
+    where
+        F: FnMut((usize, GtfsTrip)),
+    {
+        match &mut self.storage {
+            StorageType::None => Ok(()),
+            StorageType::Zip(archive) => stream_from_zip(archive, &self.config.trips_path, f),
+        }
+    }
 }
 
 fn stream_from_zip<T, F>(

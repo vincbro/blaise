@@ -76,3 +76,15 @@ pub struct GtfsStopTime {
     pub pickup_booking_rule_id: Option<String>,
     pub drop_off_booking_rule_id: Option<String>,
 }
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct GtfsTrip {
+    pub route_id: String,
+    pub service_id: String,
+    pub trip_id: String,
+    pub trip_headsign: Option<String>,
+    pub trip_short_name: Option<String>,
+    pub direction_id: Option<u8>,
+    pub shape_id: Option<String>,
+}
