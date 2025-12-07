@@ -11,6 +11,6 @@ fn distance_test() {
         latitude: 51.5052389927712,
         longitude: -0.12495407345099824,
     };
-    let d = distance(coord_a, coord_b);
+    let d = distance(&coord_a, &coord_b);
     assert!((d - 343_000.0).abs() > 500.0);
 }

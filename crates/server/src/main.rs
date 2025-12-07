@@ -7,7 +7,7 @@ use std::{
 };
 
 use ontrack::{
-    engine::{self, Identifiable},
+    engine::{self, Coordinate, Identifiable},
     gtfs,
 };
 
@@ -28,6 +28,16 @@ fn main() {
     let duration = start.elapsed();
     println!("Loading took: {:?}", duration);
 
+    let coord = Coordinate {
+        latitude: 59.58364219722381,
+        longitude: 17.893745024986465,
+    };
+
+    let stops = engine.stops_by_coordinate(&coord, 50.0);
+    stops.iter().for_each(|stop| {
+        println!("{} - {}", stop.name, stop.id);
+    });
+
     let mut buf = String::new();
     loop {
         print!("Search: ");
@@ -44,17 +54,6 @@ fn main() {
             // dbg!(&stops);
             stops.iter().for_each(|stop| {
                 println!("  {}", stop.id);
-                match &stop.location_type {
-                    engine::LocationType::Stop => println!("  stop"),
-                    engine::LocationType::Platform {
-                        parent_station,
-                        platform_code,
-                    } => println!("  platform"),
-                    engine::LocationType::Station => println!(" station"),
-                    engine::LocationType::Entrance(_) => println!(" entrance"),
-                    engine::LocationType::Node => println!("  node"),
-                    engine::LocationType::Boarding => println!("  boarding"),
-                }
                 let trips = engine.trips_by_stop_id(&stop.id).unwrap_or_default();
                 // dbg!(&trips);
                 trips.iter().for_each(|trip| {
