@@ -7,7 +7,10 @@ use std::{
 };
 
 use ontrack::{
-    engine::{self, Coordinate, Identifiable},
+    engine::{
+        self, Identifiable,
+        geo::{Coordinate, Distance},
+    },
     gtfs,
 };
 
@@ -33,7 +36,7 @@ fn main() {
         longitude: 17.893745024986465,
     };
 
-    let stops = engine.stops_by_coordinate(&coord, 50.0);
+    let stops = engine.stops_by_coordinate(&coord, Distance::meters(50.0));
     stops.iter().for_each(|stop| {
         println!("{} - {}", stop.name, stop.id);
     });

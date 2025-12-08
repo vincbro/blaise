@@ -1,8 +1,11 @@
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 use std::{collections::HashMap, sync::Arc};
 
+// Util
 pub mod fuzzy;
+pub mod geo;
 
+// Models
 mod area;
 mod stop;
 mod stop_time;
@@ -12,7 +15,10 @@ pub use stop::*;
 pub use stop_time::*;
 pub use trip::*;
 
-use crate::gtfs::{self, Gtfs};
+use crate::{
+    engine::geo::{Coordinate, Distance},
+    gtfs::{self, Gtfs},
+};
 
 pub const CELL_SIZE_METER: f64 = 300.0;
 
@@ -244,10 +250,10 @@ impl Engine {
         Some(stop_times.iter().map(|i| &self.stop_times[*i]).collect())
     }
 
-    pub fn stops_by_coordinate(&self, coord: &Coordinate, dist_m: f64) -> Vec<&Stop> {
-        let reach = (dist_m / CELL_SIZE_METER).ceil().abs() as i32;
+    pub fn stops_by_coordinate(&self, coordinate: &Coordinate, distance: Distance) -> Vec<&Stop> {
+        let reach = (distance.as_meters() / CELL_SIZE_METER).ceil().abs() as i32;
         println!("REACH IS {}", reach);
-        let cell = coord.to_grid();
+        let cell = coordinate.to_grid();
         let mut stops: Vec<&Stop> = Vec::new();
         for x in -reach..reach + 1 {
             for y in -reach..reach + 1 {
@@ -255,7 +261,7 @@ impl Engine {
                 if let Some(stop_ids) = self.stop_distance_lookup.get(&cell) {
                     stop_ids.iter().for_each(|stop_id| {
                         if let Some(stop) = self.stop_by_id(stop_id)
-                            && stop.coordinate.distance_m(coord) <= dist_m
+                            && stop.coordinate.distance(coordinate) <= distance
                         {
                             stops.push(stop);
                         }
