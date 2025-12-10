@@ -6,11 +6,9 @@ use std::{
     time::Instant,
 };
 
+use ontrack::engine::geo::Coordinate;
 use ontrack::{
-    engine::{
-        self, Identifiable,
-        geo::{Coordinate, Distance},
-    },
+    engine::{self},
     gtfs,
 };
 
@@ -31,46 +29,49 @@ fn main() {
     let duration = start.elapsed();
     println!("Loading took: {:?}", duration);
 
-    let to = Coordinate {
-        latitude: 59.58364219722381,
-        longitude: 17.893745024986465,
+    let from = input("from");
+    let from_area = engine.search_areas_by_name(&from)[0];
+    let mut from_coordinate = Coordinate {
+        latitude: 0.0,
+        longitude: 0.0,
     };
+    let from_stops = engine.stops_by_area_id(&from_area.id).unwrap();
+    from_stops.iter().for_each(|stop| {
+        from_coordinate.latitude += stop.coordinate.latitude;
+        from_coordinate.longitude += stop.coordinate.longitude;
+    });
+    from_coordinate.latitude /= from_stops.len() as f64;
+    from_coordinate.longitude /= from_stops.len() as f64;
 
-    let from = engine.stop_by_id("43915").unwrap();
+    let to = input("to");
+    let to_area = engine.search_areas_by_name(&to)[0];
+    let mut to_coordinate = Coordinate {
+        latitude: 0.0,
+        longitude: 0.0,
+    };
+    let to_stops = engine.stops_by_area_id(&to_area.id).unwrap();
+    to_stops.iter().for_each(|stop| {
+        to_coordinate.latitude += stop.coordinate.latitude;
+        to_coordinate.longitude += stop.coordinate.longitude;
+    });
+    to_coordinate.latitude /= to_stops.len() as f64;
+    to_coordinate.longitude /= to_stops.len() as f64;
+    let mut router = engine
+        .router(from_coordinate.into(), to_coordinate.into())
+        .unwrap();
+    println!("Routing from: {} to: {}", from_area.name, to_area.name);
+    router
+        .run()
+        .unwrap()
+        .iter()
+        .for_each(|str| println!("{str}"));
+}
 
-    let router = engine
-        .router()
-        .with_start_stop(from)
-        .with_end_coordinate(to);
-
-    router.run();
-
+fn input(text: &str) -> String {
     let mut buf = String::new();
-    loop {
-        print!("Search: ");
-        io::stdout().flush().unwrap();
-        io::stdin().read_line(&mut buf).unwrap();
-        let search_str = buf.trim();
-        println!("Seaching for {search_str}...");
-        let start = Instant::now();
-        let results = engine.search_areas_by_name(search_str);
-        let duration = start.elapsed();
-        results.iter().take(5).for_each(|area| {
-            println!("{}", area.name());
-            let stops = engine.stops_by_area_id(&area.id).unwrap_or_default();
-            // dbg!(&stops);
-            stops.iter().for_each(|stop| {
-                println!("  {}", stop.id);
-                let trips = engine.trips_by_stop_id(&stop.id).unwrap_or_default();
-                // dbg!(&trips);
-                trips.iter().for_each(|trip| {
-                    if let Some(headsign) = &trip.headsign {
-                        println!("  {headsign}");
-                    }
-                });
-            });
-        });
-        println!("Search took: {:?}", duration);
-        buf.clear();
-    }
+    print!("{text}: ");
+    io::stdout().flush().unwrap();
+    io::stdin().read_line(&mut buf).unwrap();
+    let search_str = buf.trim();
+    search_str.to_string()
 }

@@ -21,6 +21,7 @@ pub enum LocationType {
 
 #[derive(Debug, Default, Clone)]
 pub struct Stop {
+    pub index: usize,
     pub id: Arc<str>,
     pub name: Arc<str>,
     pub normalized_name: Arc<str>,
@@ -65,6 +66,7 @@ impl From<GtfsStop> for Stop {
         };
 
         Self {
+            index: usize::MAX,
             id: value.stop_id.into(),
             name: value.stop_name.clone().into(),
             normalized_name: value.stop_name.to_lowercase().into(),

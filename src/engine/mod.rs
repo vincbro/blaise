@@ -19,7 +19,7 @@ pub use trip::*;
 use crate::{
     engine::{
         geo::{Coordinate, Distance},
-        routing::Router,
+        routing::{Router, Waypoint},
     },
     gtfs::{self, Gtfs},
 };
@@ -43,10 +43,10 @@ type CellToIds = HashMap<(i32, i32), Arc<[Arc<str>]>>;
 
 #[derive(Debug, Clone, Default)]
 pub struct Engine {
-    stops: Arc<[Stop]>,
-    areas: Arc<[Area]>,
-    trips: Arc<[Trip]>,
-    stop_times: Arc<[StopTime]>,
+    pub stops: Arc<[Stop]>,
+    pub areas: Arc<[Area]>,
+    pub trips: Arc<[Trip]>,
+    pub stop_times: Arc<[StopTime]>,
 
     // Lookup tables
     stop_lookup: Arc<IdToIndex>,
@@ -71,7 +71,8 @@ impl Engine {
         let mut stop_lookup: IdToIndex = HashMap::new();
         let mut stops: Vec<Stop> = Vec::new();
         gtfs.stream_stops(|(i, stop)| {
-            let value: Stop = stop.into();
+            let mut value: Stop = stop.into();
+            value.index = i;
             stop_lookup.insert(value.id.clone(), i);
             stops.push(value);
         })?;
@@ -83,7 +84,8 @@ impl Engine {
         let mut area_lookup: IdToIndex = HashMap::new();
         let mut areas: Vec<Area> = Vec::new();
         gtfs.stream_areas(|(i, area)| {
-            let value: Area = area.into();
+            let mut value: Area = area.into();
+            value.index = i;
             area_lookup.insert(value.id.clone(), i);
             areas.push(value);
         })?;
@@ -122,7 +124,8 @@ impl Engine {
         let mut trip_lookup: IdToIndex = HashMap::new();
         let mut trips: Vec<Trip> = Vec::new();
         gtfs.stream_trips(|(i, trip)| {
-            let value: Trip = trip.into();
+            let mut value: Trip = trip.into();
+            value.index = i;
             trip_lookup.insert(value.id.clone(), i);
             trips.push(value);
         })?;
@@ -145,6 +148,9 @@ impl Engine {
 
             let mut value: StopTime = stop_time.into();
             value.trip_id = trip.id.clone();
+            value.trip_idx = *trip_index;
+            value.stop_id = stop.id.clone();
+            value.stop_idx = *stop_index;
             stop_times.push(value);
 
             trip_to_stop_times
@@ -289,7 +295,7 @@ impl Engine {
         search::search(needle, &self.stops)
     }
 
-    pub fn router(&self) -> Router {
-        Router::new(self.clone())
+    pub fn router(&self, from: Waypoint, to: Waypoint) -> Result<Router, routing::Error> {
+        Router::new(self.clone(), from, to)
     }
 }

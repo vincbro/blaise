@@ -48,7 +48,7 @@ impl Sub for Distance {
 impl Mul for Distance {
     type Output = Self;
     fn mul(self, rhs: Self) -> Self::Output {
-        Self::meters(self.as_meters() - rhs.as_meters())
+        Self::meters(self.as_meters() * rhs.as_meters())
     }
 }
 
@@ -83,7 +83,7 @@ impl Distance {
     }
 }
 
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct Coordinate {
     pub latitude: f64,
     pub longitude: f64,
