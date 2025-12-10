@@ -31,15 +31,19 @@ fn main() {
     let duration = start.elapsed();
     println!("Loading took: {:?}", duration);
 
-    let coord = Coordinate {
+    let to = Coordinate {
         latitude: 59.58364219722381,
         longitude: 17.893745024986465,
     };
 
-    let stops = engine.stops_by_coordinate(&coord, Distance::meters(50.0));
-    stops.iter().for_each(|stop| {
-        println!("{} - {}", stop.name, stop.id);
-    });
+    let from = engine.stop_by_id("43915").unwrap();
+
+    let router = engine
+        .router()
+        .with_start_stop(from)
+        .with_end_coordinate(to);
+
+    router.run();
 
     let mut buf = String::new();
     loop {

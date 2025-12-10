@@ -1,9 +1,10 @@
-use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 use std::{collections::HashMap, sync::Arc};
 
 // Util
 pub mod fuzzy;
 pub mod geo;
+pub mod routing;
+pub mod search;
 
 // Models
 mod area;
@@ -16,11 +17,17 @@ pub use stop_time::*;
 pub use trip::*;
 
 use crate::{
-    engine::geo::{Coordinate, Distance},
+    engine::{
+        geo::{Coordinate, Distance},
+        routing::Router,
+    },
     gtfs::{self, Gtfs},
 };
 
-pub const CELL_SIZE_METER: f64 = 300.0;
+// Global Urban Standard
+pub(crate) const AVERAGE_STOP_DISTANCE: Distance = Distance::meters(500.0);
+pub(crate) const LONGITUDE_DISTANCE: Distance = Distance::meters(111_320.0);
+pub(crate) const LATITUDE_DISTANCE: Distance = Distance::meters(110_540.0);
 
 pub trait Identifiable {
     fn id(&self) -> &str;
@@ -34,7 +41,7 @@ type IdToId = HashMap<Arc<str>, Arc<str>>;
 type IdToIds = HashMap<Arc<str>, Arc<[Arc<str>]>>;
 type CellToIds = HashMap<(i32, i32), Arc<[Arc<str>]>>;
 
-#[derive(Clone, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Engine {
     stops: Arc<[Stop]>,
     areas: Arc<[Area]>,
@@ -250,9 +257,9 @@ impl Engine {
         Some(stop_times.iter().map(|i| &self.stop_times[*i]).collect())
     }
 
+    /// Returns stops near there within the coordinates.
     pub fn stops_by_coordinate(&self, coordinate: &Coordinate, distance: Distance) -> Vec<&Stop> {
-        let reach = (distance.as_meters() / CELL_SIZE_METER).ceil().abs() as i32;
-        println!("REACH IS {}", reach);
+        let reach = (distance / AVERAGE_STOP_DISTANCE).as_meters().ceil().abs() as i32;
         let cell = coordinate.to_grid();
         let mut stops: Vec<&Stop> = Vec::new();
         for x in -reach..reach + 1 {
@@ -274,39 +281,15 @@ impl Engine {
 
     /// Does a fuzzy search on all the areas, comparing there name to the needle.
     pub fn search_areas_by_name<'a>(&'a self, needle: &'a str) -> Vec<&'a Area> {
-        search(needle, &self.areas)
+        search::search(needle, &self.areas)
     }
 
     /// Does a fuzzy search on all the stops, comparing there name to the needle.
     pub fn search_stops_by_name<'a>(&'a self, needle: &'a str) -> Vec<&'a Stop> {
-        search(needle, &self.stops)
+        search::search(needle, &self.stops)
     }
-}
 
-/// Generic fuzzy search function built for multithreaded searching.
-fn search<'a, T>(needle: &'a str, haystack: &'a [T]) -> Vec<&'a T>
-where
-    T: Send + Sync + Identifiable,
-{
-    let normalized_needle = needle.to_lowercase();
-    let threads = rayon::current_num_threads();
-    let chunk_size = haystack.len().div_ceil(threads);
-    let mut results: Vec<Vec<(&T, f64)>> = Vec::with_capacity(threads);
-    for _ in 0..threads {
-        results.push(Vec::with_capacity(chunk_size));
+    pub fn router(&self) -> Router {
+        Router::new(self.clone())
     }
-    results.par_iter_mut().enumerate().for_each(|(chunk, vec)| {
-        for i in 0..chunk_size {
-            let index = (chunk * chunk_size) + i;
-            if index > haystack.len() - 1 {
-                break;
-            }
-            let hay = &haystack[index];
-            let score = fuzzy::score(&normalized_needle, hay.normalized_name());
-            vec.push((hay, score));
-        }
-    });
-    let mut results: Vec<_> = results.into_iter().flatten().collect();
-    results.sort_by(|(_, score_a), (_, score_b)| score_b.total_cmp(score_a));
-    results.iter().map(|(entity, _)| *entity).collect()
 }

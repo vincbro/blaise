@@ -1,6 +1,9 @@
-use std::cmp;
+use std::{
+    cmp,
+    ops::{Add, Div, Mul, Sub},
+};
 
-use crate::engine::CELL_SIZE_METER;
+use crate::engine::{AVERAGE_STOP_DISTANCE, LATITUDE_DISTANCE, LONGITUDE_DISTANCE};
 
 #[derive(Debug, Clone, Copy)]
 pub enum Distance {
@@ -23,6 +26,36 @@ impl PartialEq for Distance {
 impl PartialOrd for Distance {
     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
         self.as_meters().partial_cmp(&other.as_meters())
+    }
+}
+
+impl Add for Distance {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self::meters(self.as_meters() + rhs.as_meters())
+    }
+}
+
+impl Sub for Distance {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self::meters(self.as_meters() - rhs.as_meters())
+    }
+}
+
+impl Mul for Distance {
+    type Output = Self;
+    fn mul(self, rhs: Self) -> Self::Output {
+        Self::meters(self.as_meters() - rhs.as_meters())
+    }
+}
+
+impl Div for Distance {
+    type Output = Self;
+    fn div(self, rhs: Self) -> Self::Output {
+        Self::meters(self.as_meters() / rhs.as_meters())
     }
 }
 
@@ -71,8 +104,10 @@ impl Coordinate {
     }
 
     pub fn to_grid(&self) -> (i32, i32) {
-        let x = (self.longitude * 111_320.0 / CELL_SIZE_METER) as i32;
-        let y = (self.latitude * 110_540.0 / CELL_SIZE_METER) as i32;
+        let x = (self.longitude * LONGITUDE_DISTANCE.as_meters()
+            / AVERAGE_STOP_DISTANCE.as_meters()) as i32;
+        let y = (self.latitude * LATITUDE_DISTANCE.as_meters() / AVERAGE_STOP_DISTANCE.as_meters())
+            as i32;
         (x, y)
     }
 }
