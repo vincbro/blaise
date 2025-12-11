@@ -24,9 +24,8 @@
         ];
 
         shellHook = ''
-          exec zsh
           export PKG_CONFIG_PATH="${pkgs.openssl.dev}/lib/pkgconfig";          
-          alias test="cargo test --all-features -- --no-capture";          
+          # alias test="cargo test --all-features -- --no-capture";          
         '';
       };
     };
