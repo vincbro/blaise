@@ -7,7 +7,8 @@ use thiserror::Error;
 use crate::engine::{
     AVERAGE_STOP_DISTANCE, Engine, Stop, StopTime,
     geo::{Coordinate, Distance},
-    routing::graph::{Node, NodeRef, Transition},
+    parse_gtfs_time,
+    routing::graph::{SearchState, SearchStateRef, Transition},
 };
 
 #[derive(Error, Debug)]
@@ -44,23 +45,23 @@ impl From<Coordinate> for Waypoint {
 
 pub struct Router {
     engine: Engine,
-    heap: BinaryHeap<NodeRef>,
-    best_cost: Vec<u32>,
-    start: NodeRef,
-    end: NodeRef,
+    heap: BinaryHeap<SearchStateRef>,
+    best_cost: Vec<usize>,
+    start: SearchStateRef,
+    end: SearchStateRef,
     walk_distance: Distance,
 }
 
 impl Router {
     pub fn new(engine: Engine, from: Waypoint, to: Waypoint) -> Result<Self, self::Error> {
-        // Build end node
-        let end: NodeRef = match to {
+        // Build end state
+        let end: SearchStateRef = match to {
             Waypoint::Stop(id) => {
                 let stop = engine.stop_by_id(&id).ok_or(self::Error::InvalidStopID)?;
-                Ok(Node {
+                Ok(SearchState {
                     stop_idx: Some(stop.index),
                     coordinate: stop.coordinate,
-                    arrival_time: 0,
+                    arrival_time: parse_gtfs_time("16:00:00").unwrap(),
                     g_distance: Default::default(),
                     g_time: 0,
                     h_distance: Default::default(),
@@ -68,7 +69,7 @@ impl Router {
                     parent: None,
                 })
             }
-            Waypoint::Coordinate(coordinate) => Ok(Node {
+            Waypoint::Coordinate(coordinate) => Ok(SearchState {
                 stop_idx: None,
                 coordinate,
                 arrival_time: 0,
@@ -81,12 +82,12 @@ impl Router {
         }?
         .into();
 
-        // Build start node
-        let start: NodeRef = match from {
+        // Build start state
+        let start: SearchStateRef = match from {
             Waypoint::Stop(id) => {
                 let stop = engine.stop_by_id(&id).ok_or(self::Error::InvalidStopID)?;
                 let distance = stop.coordinate.distance(&end.coordinate);
-                Ok(Node {
+                Ok(SearchState {
                     stop_idx: Some(stop.index),
                     coordinate: stop.coordinate,
                     arrival_time: 0,
@@ -97,7 +98,7 @@ impl Router {
                     parent: None,
                 })
             }
-            Waypoint::Coordinate(coordinate) => Ok(Node {
+            Waypoint::Coordinate(coordinate) => Ok(SearchState {
                 stop_idx: None,
                 coordinate,
                 arrival_time: 0,
@@ -111,7 +112,7 @@ impl Router {
         .into();
 
         Ok(Self {
-            best_cost: vec![u32::MAX; engine.stops.len()],
+            best_cost: vec![usize::MAX; engine.stops.len()],
             engine,
             heap: Default::default(),
             walk_distance: AVERAGE_STOP_DISTANCE,
@@ -125,42 +126,36 @@ impl Router {
         self
     }
 
-    pub fn run(&mut self) -> Result<Vec<String>, self::Error> {
+    pub fn run(&mut self) -> Result<Vec<SearchStateRef>, self::Error> {
         // Find all stops close to the start and set them as possible routes
         self.add_walk_neigbours(&self.start.clone());
 
-        while let Some(node) = self.heap.pop() {
-            let distance_to_end = self.end.coordinate.distance(&node.coordinate);
+        while let Some(state) = self.heap.pop() {
+            let distance_to_end = self.end.coordinate.distance(&state.coordinate);
             // This is true if we can walk to the end
             if distance_to_end <= self.walk_distance {
-                let mut route: Vec<String> = vec![];
-                route.push(self.node_to_str(&self.end));
-                let mut walk = Some(node);
-                while let Some(node) = walk {
-                    route.push(self.node_to_str(&node));
-                    walk = node.parent.clone();
+                let mut route: Vec<SearchStateRef> = vec![];
+                route.push(self.end.clone());
+                let mut next = Some(state);
+                while let Some(state) = next {
+                    next = state.parent.clone();
+                    route.push(state);
                 }
                 route.reverse();
                 return Ok(route);
             }
-            // if let Some(stop_idx) = node.stop_idx {
-            //     // println!("name: {}", self.engine.stops[stop_idx].name);
-            // }
-            self.add_neigbours(&node);
-            // if node.transition != Transition::Walk {
-            //     self.add_walk_neigbours(&node);
-            // }
+            self.add_neigbours(&state);
         }
         Err(self::Error::NoRouteFound)
     }
 
-    fn add_walk_neigbours(&mut self, node: &NodeRef) {
+    fn add_walk_neigbours(&mut self, node: &SearchStateRef) {
         self.engine
             .stops_by_coordinate(&node.coordinate, self.walk_distance)
             .into_iter()
             .filter(|stop| self.engine.trips_by_stop_id(&stop.id).is_some())
             .for_each(|stop| {
-                let node = Node::from_coordinate(node, stop, &self.end);
+                let node = SearchState::from_coordinate(node, stop, &self.end);
                 let cost = node.cost();
                 if cost < self.best_cost[stop.index] {
                     self.best_cost[stop.index] = cost;
@@ -169,7 +164,7 @@ impl Router {
             });
     }
 
-    fn add_neigbours(&mut self, from_node: &NodeRef) {
+    fn add_neigbours(&mut self, from_node: &SearchStateRef) {
         match from_node.transition {
             Transition::Travel { trip_idx, sequence } => {
                 // If we are traveling we will continue down the path
@@ -180,12 +175,13 @@ impl Router {
                         continue;
                     }
                     let stop = &self.engine.stops[stop_time.stop_idx];
-                    let to_node = Node::from_stop_time(from_node, stop, stop_time, &self.end);
+                    let to_node =
+                        SearchState::from_stop_time(from_node, stop, stop_time, &self.end);
                     let cost = to_node.cost();
                     // If it's worth to explore it
                     if cost < self.best_cost[stop.index] {
                         self.best_cost[stop.index] = cost;
-                        let node: NodeRef = to_node.into();
+                        let node: SearchStateRef = to_node.into();
                         self.heap.push(node.clone());
 
                         // We also want to explore transfers
@@ -194,12 +190,13 @@ impl Router {
                         {
                             transfers.iter().for_each(|transfer| {
                                 let tran_stop = &self.engine.stops[transfer.to_stop_idx];
-                                let tran_node =
-                                    Node::from_transfer(&node, tran_stop, transfer, &self.end);
+                                let tran_node = SearchState::from_transfer(
+                                    &node, tran_stop, transfer, &self.end,
+                                );
                                 let cost = tran_node.cost();
                                 if cost < self.best_cost[tran_stop.index] {
                                     self.best_cost[tran_stop.index] = cost;
-                                    let t_node: NodeRef = tran_node.into();
+                                    let t_node: SearchStateRef = tran_node.into();
                                     self.heap.push(t_node);
                                 }
                             });
@@ -224,13 +221,14 @@ impl Router {
                             } else if from_stop_time.is_some() {
                                 // TEMP should never happend tho
                                 let stop = self.engine.stop_by_id(&stop_time.stop_id).unwrap();
-                                let node =
-                                    Node::from_stop_time(from_node, stop, stop_time, &self.end);
+                                let node = SearchState::from_stop_time(
+                                    from_node, stop, stop_time, &self.end,
+                                );
 
                                 let cost = node.cost();
                                 if cost < self.best_cost[stop.index] {
                                     self.best_cost[stop.index] = cost;
-                                    let node: NodeRef = node.into();
+                                    let node: SearchStateRef = node.into();
                                     self.heap.push(node.clone());
 
                                     // We also want to explore transfers
@@ -240,13 +238,13 @@ impl Router {
                                         transfers.iter().for_each(|transfer| {
                                             let tran_stop =
                                                 &self.engine.stops[transfer.to_stop_idx];
-                                            let tran_node = Node::from_transfer(
+                                            let tran_node = SearchState::from_transfer(
                                                 &node, tran_stop, transfer, &self.end,
                                             );
                                             let cost = tran_node.cost();
                                             if cost < self.best_cost[tran_stop.index] {
                                                 self.best_cost[tran_stop.index] = cost;
-                                                let t_node: NodeRef = tran_node.into();
+                                                let t_node: SearchStateRef = tran_node.into();
                                                 self.heap.push(t_node);
                                             }
                                         });
@@ -285,12 +283,13 @@ impl Router {
                             continue;
                         }
                         let stop = &self.engine.stops[stop_time.stop_idx];
-                        let node = Node::from_stop_time(from_node, stop, stop_time, &self.end);
+                        let node =
+                            SearchState::from_stop_time(from_node, stop, stop_time, &self.end);
                         let cost = node.cost();
                         // If it's worth to explore it
                         if cost < self.best_cost[stop.index] {
                             self.best_cost[stop.index] = cost;
-                            let node: NodeRef = node.into();
+                            let node: SearchStateRef = node.into();
                             self.heap.push(node.clone());
                         }
                         break;
@@ -319,13 +318,14 @@ impl Router {
                                     continue;
                                 }
                                 let stop = &self.engine.stops[stop_time.stop_idx];
-                                let node =
-                                    Node::from_stop_time(from_node, stop, stop_time, &self.end);
+                                let node = SearchState::from_stop_time(
+                                    from_node, stop, stop_time, &self.end,
+                                );
                                 let cost = node.cost();
                                 // If it's worth to explore it
                                 if cost < self.best_cost[stop.index] {
                                     self.best_cost[stop.index] = cost;
-                                    let node: NodeRef = node.into();
+                                    let node: SearchStateRef = node.into();
                                     self.heap.push(node.clone());
                                 }
                                 break;
@@ -335,23 +335,6 @@ impl Router {
             }
             Transition::Genesis => todo!(),
         }
-    }
-
-    fn node_to_str(&self, node: &NodeRef) -> String {
-        let prefix = match node.transition {
-            Transition::Travel { .. } => "Travel to".to_string(),
-            Transition::Walk => "Walk to".to_string(),
-            Transition::Transfer { .. } => "Transfer to".to_string(),
-            Transition::Genesis => "START/END from".to_string(),
-        };
-        let name = match node.stop_idx {
-            Some(stop_idx) => format!("{}", self.engine.stops[stop_idx].name),
-            None => format!(
-                "Position: {}, {}",
-                node.coordinate.latitude, node.coordinate.longitude
-            ),
-        };
-        format!("{} {}", prefix, name)
     }
 }
 

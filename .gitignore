@@ -1,4 +1,4 @@
 /target
 /crates/server/target
-/tests/gtfs3.zip
+*.zip
 .direnv/

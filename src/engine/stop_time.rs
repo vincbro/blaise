@@ -25,8 +25,10 @@ pub struct StopTime {
     pub stop_idx: usize,
     pub stop_id: Arc<str>,
     pub sequence: usize,
-    pub arrival_time: Arc<str>,
-    pub departure_time: Arc<str>,
+    // Seconds since midnight
+    pub arrival_time: usize,
+    // Seconds since midnight
+    pub departure_time: usize,
     pub headsign: Option<Arc<str>>,
     pub dist_traveled: Option<Distance>,
     pub pickup_type: StopAccessType,
@@ -42,8 +44,8 @@ impl From<GtfsStopTime> for StopTime {
             stop_id: Default::default(),
             stop_idx: usize::MAX,
             sequence: value.stop_sequence as usize,
-            arrival_time: value.arrival_time.into(),
-            departure_time: value.departure_time.into(),
+            arrival_time: parse_gtfs_time(&value.arrival_time).unwrap(),
+            departure_time: parse_gtfs_time(&value.departure_time).unwrap(),
             headsign: value.stop_headsign.map(|val| val.into()),
             dist_traveled: value.shape_dist_traveled.map(Distance::kilometers),
             pickup_type: StopAccessType::Regularly,
@@ -51,4 +53,14 @@ impl From<GtfsStopTime> for StopTime {
             timepoint: Timepoint::Exact,
         }
     }
+}
+
+pub fn parse_gtfs_time(time: &str) -> Option<usize> {
+    const HOUR_TO_SEC: usize = 60 * 60;
+    const MINUTE_TO_SEC: usize = 60;
+    let mut split = time.split(':');
+    let hours: usize = split.next()?.parse().ok()?;
+    let minutes: usize = split.next()?.parse().ok()?;
+    let seconds: usize = split.next()?.parse().ok()?;
+    Some((hours * HOUR_TO_SEC) + (minutes * MINUTE_TO_SEC) + seconds)
 }

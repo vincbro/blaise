@@ -69,10 +69,10 @@ fn main() {
 - In-memory GTFS engine for fast read/query operations.
 - Direct querying of entities by ID. *500ns to 500µs*
 - Fuzzy search for stops and geographic areas.
-
-## Roadmap
 - Distance-based search for stops and areas.
 - Simple distance-based routing.
+
+## Roadmap
 - Time-based routing and schedule-aware journey planning.
 
 ## Refrences

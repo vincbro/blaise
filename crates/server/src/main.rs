@@ -1,12 +1,16 @@
 use std::{
     env,
+    fmt::format,
     io::{self, Write},
     path::Path,
     process::exit,
     time::Instant,
 };
 
-use ontrack::engine::geo::Coordinate;
+use ontrack::engine::{
+    geo::Coordinate,
+    routing::graph::{SearchState, SearchStateRef, Transition},
+};
 use ontrack::{
     engine::{self},
     gtfs,
@@ -60,11 +64,27 @@ fn main() {
         .router(from_coordinate.into(), to_coordinate.into())
         .unwrap();
     println!("Routing from: {} to: {}", from_area.name, to_area.name);
-    router
-        .run()
-        .unwrap()
-        .iter()
-        .for_each(|str| println!("{str}"));
+
+    let start = Instant::now();
+    let route = router.run().unwrap();
+    let duration = start.elapsed();
+    println!("Routing took: {:?}", duration);
+
+    let steps = route.len();
+
+    let start = route.first().unwrap().clone();
+    let end = route.last().unwrap().clone();
+
+    println!("Started from: {}", get_name(&start, &engine));
+    for state in route.into_iter().take(steps - 1).skip(1) {
+        println!(
+            "{} from {} to {}",
+            get_mode(&state),
+            get_name(&state.parent.clone().unwrap(), &engine),
+            get_name(&state, &engine),
+        )
+    }
+    println!("Ended at: {}", get_name(&end, &engine));
 }
 
 fn input(text: &str) -> String {
@@ -74,4 +94,23 @@ fn input(text: &str) -> String {
     io::stdin().read_line(&mut buf).unwrap();
     let search_str = buf.trim();
     search_str.to_string()
+}
+
+fn get_name(state: &SearchState, engine: &engine::Engine) -> String {
+    match state.stop_idx {
+        Some(stop_idx) => engine.stops[stop_idx].name.to_string(),
+        None => format!(
+            "{}, {}",
+            state.coordinate.latitude, state.coordinate.longitude,
+        ),
+    }
+}
+
+fn get_mode(state: &SearchState) -> String {
+    match state.transition {
+        Transition::Travel { .. } => "Traveled".to_string(),
+        Transition::Walk => "Walked".to_string(),
+        Transition::Transfer { .. } => "Transfered".to_string(),
+        Transition::Genesis => "Genesis".to_string(),
+    }
 }
