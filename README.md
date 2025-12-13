@@ -20,60 +20,18 @@ Entities such as `stops`, `areas`, and others are stored as `Arc<[T]>` slices, a
 
 The only time the `engine` allocates new memory is when performing request-driven operations such as **search** operations. In those cases, the newly allocated memory is owned entirely by the consumer (i.e., you). In a scenario like a web server, this means the allocated data exists only for the duration of the request and is freed immediately afterward.
 
-## Usage
-Simple program for finding areas (An area is a geografic area/collection of stops).
-```rust
-use std::{env, path::Path, process::exit, time::Instant};
-
-use ontrack::{
-    engine::{self, Identifiable},
-    gtfs,
-};
-
-fn main() {
-    let args: Vec<_> = env::args().collect();
-    if args.len() < 3 {
-        println!("Missing gtfs zip and/or search string");
-        exit(1);
-    }
-
-    // Takes the search string from a possible local space like data/gtfs.zip into system i.e /home/user/data/gtfs.zip
-    let path = Path::new(&args[1]).canonicalize().unwrap();
-
-    // The gtfs module is used to read and parse gtfs data into in memory structs.
-    // The structs that are held in the gtfs are supposed to be identical to the ones found in the gtfs spec.
-    // The Gtfs struct never loads any data on it's own, it only loads the data when it's being fetched by the engine.
-    let data = gtfs::Gtfs::new(gtfs::Config::default())
-        .from_zip(path)
-        .unwrap();
-
-
-    // This creates a new engine, good to note is that the engine is empty until a with function is called.
-    let engine = engine::Engine::new().with_gtfs(data);
-
-    let start = Instant::now();
-    // The return of the search_areas_by_name is owned by the main function.
-    let results = engine.search_areas_by_name(&args[2]);
-    // Since the area struct is built using Arc<str> it's really cheap to copy but here we are using refrences.
-    for value in results.iter().take(5) {
-        println!("{}", value.name());
-    }
-    let duration = start.elapsed();
-    // Note that building with --release tag improves performance alot.
-    println!("Operation took: {:?}", duration);
-}
-```
-
 ## Implemented
 - Load GTFS data directly from `.zip` archives.
 - In-memory GTFS engine for fast read/query operations.
-- Direct querying of entities by ID. *500ns to 500µs*
+- Direct querying of entities by ID.
 - Fuzzy search for stops and geographic areas.
 - Distance-based search for stops and areas.
 - Simple distance-based routing.
+- Time-based routing and schedule-aware journey planning.
 
 ## Roadmap
-- Time-based routing and schedule-aware journey planning.
+- Server (`crates/server`)
+- Multi threaded routing
 
 ## Refrences
 - [GTFS Specification](https://gtfs.org/documentation/schedule/reference/)
