@@ -61,7 +61,7 @@ impl Router {
                 Ok(SearchState {
                     stop_idx: Some(stop.index),
                     coordinate: stop.coordinate,
-                    arrival_time: parse_gtfs_time("16:00:00").unwrap(),
+                    current_time: 0,
                     g_distance: Default::default(),
                     g_time: 0,
                     h_distance: Default::default(),
@@ -72,7 +72,7 @@ impl Router {
             Waypoint::Coordinate(coordinate) => Ok(SearchState {
                 stop_idx: None,
                 coordinate,
-                arrival_time: 0,
+                current_time: 0,
                 g_distance: Default::default(),
                 g_time: 0,
                 h_distance: Default::default(),
@@ -90,7 +90,7 @@ impl Router {
                 Ok(SearchState {
                     stop_idx: Some(stop.index),
                     coordinate: stop.coordinate,
-                    arrival_time: 0,
+                    current_time: parse_gtfs_time("16:00:00").unwrap(),
                     g_distance: Default::default(),
                     g_time: 0,
                     h_distance: distance,
@@ -101,7 +101,7 @@ impl Router {
             Waypoint::Coordinate(coordinate) => Ok(SearchState {
                 stop_idx: None,
                 coordinate,
-                arrival_time: 0,
+                current_time: parse_gtfs_time("16:00:00").unwrap(),
                 g_distance: Default::default(),
                 g_time: 0,
                 h_distance: coordinate.distance(&end.coordinate),
@@ -145,6 +145,9 @@ impl Router {
                 return Ok(route);
             }
             self.add_neigbours(&state);
+            // if state.transition != Transition::Walk {
+            //     self.add_walk_neigbours(&state);
+            // }
         }
         Err(self::Error::NoRouteFound)
     }
@@ -170,39 +173,54 @@ impl Router {
                 // If we are traveling we will continue down the path
                 let trip = &self.engine.trips[trip_idx];
                 let stop_times = self.engine.stop_times_by_trip_id(&trip.id).unwrap();
-                for stop_time in stop_times {
-                    if stop_time.sequence != sequence + 1 {
-                        continue;
+                let mut last_stop_time: Option<&StopTime> = None;
+                for stop_time in stop_times.iter() {
+                    if stop_time.sequence == sequence {
+                        last_stop_time = Some(stop_time);
+                        break;
                     }
-                    let stop = &self.engine.stops[stop_time.stop_idx];
-                    let to_node =
-                        SearchState::from_stop_time(from_node, stop, stop_time, &self.end);
-                    let cost = to_node.cost();
-                    // If it's worth to explore it
-                    if cost < self.best_cost[stop.index] {
-                        self.best_cost[stop.index] = cost;
-                        let node: SearchStateRef = to_node.into();
-                        self.heap.push(node.clone());
+                }
 
-                        // We also want to explore transfers
-                        if let Some(transfers) =
-                            self.engine.transfers_by_stop_id(&stop_time.stop_id)
-                        {
-                            transfers.iter().for_each(|transfer| {
-                                let tran_stop = &self.engine.stops[transfer.to_stop_idx];
-                                let tran_node = SearchState::from_transfer(
-                                    &node, tran_stop, transfer, &self.end,
-                                );
-                                let cost = tran_node.cost();
-                                if cost < self.best_cost[tran_stop.index] {
-                                    self.best_cost[tran_stop.index] = cost;
-                                    let t_node: SearchStateRef = tran_node.into();
-                                    self.heap.push(t_node);
-                                }
-                            });
+                if let Some(last_stop_time) = last_stop_time {
+                    for new_stop_time in stop_times.iter() {
+                        if new_stop_time.sequence != sequence + 1 {
+                            continue;
                         }
+                        let stop = &self.engine.stops[new_stop_time.stop_idx];
+                        let to_node = SearchState::from_stop_time(
+                            from_node,
+                            stop,
+                            last_stop_time,
+                            new_stop_time,
+                            &self.end,
+                        );
+                        let cost = to_node.cost();
+                        // If it's worth to explore it
+                        if cost < self.best_cost[stop.index] {
+                            self.best_cost[stop.index] = cost;
+                            let node: SearchStateRef = to_node.into();
+                            self.heap.push(node.clone());
+
+                            // We also want to explore transfers
+                            if let Some(transfers) =
+                                self.engine.transfers_by_stop_id(&new_stop_time.stop_id)
+                            {
+                                transfers.iter().for_each(|transfer| {
+                                    let tran_stop = &self.engine.stops[transfer.to_stop_idx];
+                                    let tran_node = SearchState::from_transfer(
+                                        &node, tran_stop, transfer, &self.end,
+                                    );
+                                    let cost = tran_node.cost();
+                                    if cost < self.best_cost[tran_stop.index] {
+                                        self.best_cost[tran_stop.index] = cost;
+                                        let t_node: SearchStateRef = tran_node.into();
+                                        self.heap.push(t_node);
+                                    }
+                                });
+                            }
+                        }
+                        break;
                     }
-                    break;
                 }
             }
             Transition::Walk => {
@@ -214,15 +232,25 @@ impl Router {
                     .into_iter()
                     .filter_map(|trip| self.engine.stop_times_by_trip_id(&trip.id))
                     .for_each(|stop_times| {
-                        let mut from_stop_time: Option<&StopTime> = None;
-                        for stop_time in stop_times.into_iter() {
-                            if from_stop_time.is_none() && stop_time.stop_idx == stop.index {
-                                from_stop_time = Some(stop_time);
-                            } else if from_stop_time.is_some() {
+                        let mut last_stop_time: Option<&StopTime> = None;
+                        for stop_time in stop_times.iter() {
+                            if stop_time.stop_idx == stop.index {
+                                last_stop_time = Some(stop_time);
+                            }
+                        }
+                        if let Some(last_stop_time) = last_stop_time {
+                            for stop_time in stop_times.iter() {
+                                if stop_time.sequence != last_stop_time.sequence + 1 {
+                                    continue;
+                                }
                                 // TEMP should never happend tho
                                 let stop = self.engine.stop_by_id(&stop_time.stop_id).unwrap();
                                 let node = SearchState::from_stop_time(
-                                    from_node, stop, stop_time, &self.end,
+                                    from_node,
+                                    stop,
+                                    last_stop_time,
+                                    stop_time,
+                                    &self.end,
                                 );
 
                                 let cost = node.cost();
@@ -230,7 +258,6 @@ impl Router {
                                     self.best_cost[stop.index] = cost;
                                     let node: SearchStateRef = node.into();
                                     self.heap.push(node.clone());
-
                                     // We also want to explore transfers
                                     if let Some(transfers) =
                                         self.engine.transfers_by_stop_id(&stop_time.stop_id)
@@ -256,70 +283,40 @@ impl Router {
                     });
             }
             Transition::Transfer {
-                from_stop_idx,
                 to_stop_idx,
                 to_trip_idx,
+                ..
             } => {
-                if let Some(to_trip_idx) = to_trip_idx {
-                    // println!("T_T");
-                    // Here we can just start by traveling down the trip
-                    let trip = &self.engine.trips[to_trip_idx];
-                    let stop_times = self
-                        .engine
-                        .stop_times_by_trip_id(&trip.id)
-                        .unwrap_or_default();
-                    let mut sequence = usize::MAX;
-                    // Find the current sequence id
-                    for stop_time in stop_times.iter() {
-                        if stop_time.stop_idx != to_stop_idx {
-                            continue;
-                        }
-                        sequence = stop_time.sequence;
-                        break;
-                    }
-
-                    for stop_time in stop_times.iter() {
-                        if stop_time.sequence != sequence + 1 {
-                            continue;
-                        }
-                        let stop = &self.engine.stops[stop_time.stop_idx];
-                        let node =
-                            SearchState::from_stop_time(from_node, stop, stop_time, &self.end);
-                        let cost = node.cost();
-                        // If it's worth to explore it
-                        if cost < self.best_cost[stop.index] {
-                            self.best_cost[stop.index] = cost;
-                            let node: SearchStateRef = node.into();
-                            self.heap.push(node.clone());
-                        }
-                        break;
-                    }
-                } else {
-                    // println!("T_S");
-                    let stop = &self.engine.stops[to_stop_idx];
-                    self.engine
-                        .trips_by_stop_id(&stop.id)
-                        .unwrap_or_default()
-                        .into_iter()
-                        .filter_map(|trip| self.engine.stop_times_by_trip_id(&trip.id))
-                        .for_each(|stop_times| {
-                            let mut sequence = usize::MAX;
-                            // Find the current sequence id
-                            for stop_time in stop_times.iter() {
-                                if stop_time.stop_idx != to_stop_idx {
-                                    continue;
-                                }
-                                sequence = stop_time.sequence;
+                match to_trip_idx {
+                    Some(to_trip_idx) => {
+                        // println!("T_T");
+                        // Here we can just start by traveling down the trip
+                        let trip = &self.engine.trips[to_trip_idx];
+                        let stop_times = self
+                            .engine
+                            .stop_times_by_trip_id(&trip.id)
+                            .unwrap_or_default();
+                        let mut last_stop_time: Option<&StopTime> = None;
+                        // Find the current sequence id
+                        for stop_time in stop_times.iter() {
+                            if stop_time.stop_idx == to_stop_idx {
+                                last_stop_time = Some(stop_time);
                                 break;
                             }
+                        }
 
+                        if let Some(last_stop_time) = last_stop_time {
                             for stop_time in stop_times.iter() {
-                                if stop_time.sequence != sequence + 1 {
+                                if stop_time.sequence != last_stop_time.sequence + 1 {
                                     continue;
                                 }
                                 let stop = &self.engine.stops[stop_time.stop_idx];
                                 let node = SearchState::from_stop_time(
-                                    from_node, stop, stop_time, &self.end,
+                                    from_node,
+                                    stop,
+                                    last_stop_time,
+                                    stop_time,
+                                    &self.end,
                                 );
                                 let cost = node.cost();
                                 // If it's worth to explore it
@@ -330,8 +327,53 @@ impl Router {
                                 }
                                 break;
                             }
-                        });
-                }
+                        }
+                    }
+
+                    None => {
+                        // println!("T_S");
+                        let stop = &self.engine.stops[to_stop_idx];
+                        self.engine
+                            .trips_by_stop_id(&stop.id)
+                            .unwrap_or_default()
+                            .into_iter()
+                            .filter_map(|trip| self.engine.stop_times_by_trip_id(&trip.id))
+                            .for_each(|stop_times| {
+                                let mut last_stop_time: Option<&StopTime> = None;
+                                // Find the current sequence id
+                                for stop_time in stop_times.iter() {
+                                    if stop_time.stop_idx != to_stop_idx {
+                                        last_stop_time = Some(stop_time);
+                                        break;
+                                    }
+                                }
+
+                                if let Some(last_stop_time) = last_stop_time {
+                                    for stop_time in stop_times.iter() {
+                                        if stop_time.sequence != last_stop_time.sequence + 1 {
+                                            continue;
+                                        }
+                                        let stop = &self.engine.stops[stop_time.stop_idx];
+                                        let node = SearchState::from_stop_time(
+                                            from_node,
+                                            stop,
+                                            last_stop_time,
+                                            stop_time,
+                                            &self.end,
+                                        );
+                                        let cost = node.cost();
+                                        // If it's worth to explore it and that we can explore
+                                        if cost < self.best_cost[stop.index] {
+                                            self.best_cost[stop.index] = cost;
+                                            let node: SearchStateRef = node.into();
+                                            self.heap.push(node.clone());
+                                        }
+                                        break;
+                                    }
+                                }
+                            });
+                    }
+                };
             }
             Transition::Genesis => todo!(),
         }

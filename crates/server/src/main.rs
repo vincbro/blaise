@@ -1,6 +1,5 @@
 use std::{
     env,
-    fmt::format,
     io::{self, Write},
     path::Path,
     process::exit,
@@ -9,7 +8,7 @@ use std::{
 
 use ontrack::engine::{
     geo::Coordinate,
-    routing::graph::{SearchState, SearchStateRef, Transition},
+    routing::graph::{SearchState, Transition},
 };
 use ontrack::{
     engine::{self},
@@ -78,10 +77,11 @@ fn main() {
     println!("Started from: {}", get_name(&start, &engine));
     for state in route.into_iter().take(steps - 1).skip(1) {
         println!(
-            "{} from {} to {}",
+            "{} from {} to {} we are at {} seconds",
             get_mode(&state),
             get_name(&state.parent.clone().unwrap(), &engine),
             get_name(&state, &engine),
+            state.g_time
         )
     }
     println!("Ended at: {}", get_name(&end, &engine));
