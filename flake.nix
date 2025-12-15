@@ -21,7 +21,6 @@
           pkgs.rust-analyzer
           pkgs.openssl
           pkgs.nodePackages.vscode-json-languageserver
-          pkgs.bruno
           pkgs.taplo
         ];
 

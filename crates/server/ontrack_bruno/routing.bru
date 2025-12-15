@@ -5,11 +5,19 @@ meta {
 }
 
 get {
-  url: http://localhost:3000/routing
+  url: http://localhost:3000/routing?from=740010889&to=740045952
   body: none
   auth: inherit
 }
 
+params:query {
+  from: 740010889
+  to: 740045952
+  ~from: 59.57547608402339,17.8947252402879
+  ~to: 59.342959,18.04765766666667
+}
+
 settings {
   encodeUrl: true
+  timeout: 0
 }

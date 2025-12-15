@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
 struct SearchResult {
+    pub id: String,
     pub name: String,
     pub coordinate: Coordinate,
 }
@@ -34,6 +35,7 @@ pub async fn search(
             .into_iter()
             .take(count)
             .map(|area| {
+                let id = area.id.to_string();
                 let name = area.name.to_string();
                 let coordinate: Coordinate = state
                     .engine
@@ -42,7 +44,11 @@ pub async fn search(
                     .into_iter()
                     .map(|stop| stop.coordinate)
                     .sum();
-                SearchResult { name, coordinate }
+                SearchResult {
+                    id,
+                    name,
+                    coordinate,
+                }
             })
             .collect();
         Ok(Json(result).into_response())

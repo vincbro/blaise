@@ -5,7 +5,7 @@ pub mod graph;
 use thiserror::Error;
 
 use crate::engine::{
-    AVERAGE_STOP_DISTANCE, Engine, Stop, StopTime,
+    AVERAGE_STOP_DISTANCE, Area, Engine, StopTime,
     geo::{Coordinate, Distance},
     parse_gtfs_time,
     routing::graph::{SearchState, SearchStateRef, Transition},
@@ -14,26 +14,26 @@ use crate::engine::{
 #[derive(Error, Debug)]
 pub enum Error {
     #[error("Stop id does not match any entry")]
-    InvalidStopID,
+    InvalidAreaID,
     #[error("Could not find a route")]
     NoRouteFound,
 }
 
 #[derive(Debug, Clone)]
 pub enum Waypoint {
-    Stop(Arc<str>),
+    Area(Arc<str>),
     Coordinate(Coordinate),
 }
 
-impl From<&Stop> for Waypoint {
-    fn from(value: &Stop) -> Self {
-        Self::Stop(value.id.clone())
+impl From<&Area> for Waypoint {
+    fn from(value: &Area) -> Self {
+        Self::Area(value.id.clone())
     }
 }
 
-impl From<Stop> for Waypoint {
-    fn from(value: Stop) -> Self {
-        Self::Stop(value.id)
+impl From<Area> for Waypoint {
+    fn from(value: Area) -> Self {
+        Self::Area(value.id)
     }
 }
 
@@ -56,11 +56,13 @@ impl Router {
     pub fn new(engine: Engine, from: Waypoint, to: Waypoint) -> Result<Self, self::Error> {
         // Build end state
         let end: SearchStateRef = match to {
-            Waypoint::Stop(id) => {
-                let stop = engine.stop_by_id(&id).ok_or(self::Error::InvalidStopID)?;
+            Waypoint::Area(id) => {
+                let coordinate = engine
+                    .coordinate_by_area_id(&id)
+                    .ok_or(self::Error::InvalidAreaID)?;
                 Ok(SearchState {
-                    stop_idx: Some(stop.index),
-                    coordinate: stop.coordinate,
+                    stop_idx: None,
+                    coordinate,
                     current_time: 0,
                     g_distance: Default::default(),
                     g_time: 0,
@@ -86,12 +88,14 @@ impl Router {
 
         // Build start state
         let start: SearchStateRef = match from {
-            Waypoint::Stop(id) => {
-                let stop = engine.stop_by_id(&id).ok_or(self::Error::InvalidStopID)?;
-                let distance = stop.coordinate.distance(&end.coordinate);
+            Waypoint::Area(id) => {
+                let coordinate = engine
+                    .coordinate_by_area_id(&id)
+                    .ok_or(self::Error::InvalidAreaID)?;
+                let distance = coordinate.distance(&end.coordinate);
                 Ok(SearchState {
-                    stop_idx: Some(stop.index),
-                    coordinate: stop.coordinate,
+                    stop_idx: None,
+                    coordinate,
                     current_time: parse_gtfs_time("16:00:00").unwrap(),
                     g_distance: Default::default(),
                     g_time: 0,

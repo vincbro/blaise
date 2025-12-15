@@ -13,12 +13,10 @@ async fn main() {
     }
     let path = std::path::Path::new(&args[1]).canonicalize().unwrap();
 
-    println!("Loading GTFS data");
     let data = ontrack::gtfs::Gtfs::new(ontrack::gtfs::Config::default())
         .from_zip(path)
         .unwrap();
     let engine = ontrack::engine::Engine::new().with_gtfs(data).unwrap();
-    println!("Loading done");
 
     let state = Arc::new(AppState::new(engine));
 
