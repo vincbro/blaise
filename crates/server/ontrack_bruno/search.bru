@@ -1,0 +1,21 @@
+meta {
+  name: search
+  type: http
+  seq: 1
+}
+
+get {
+  url: http://localhost:3000/search?q=rosersberg&count=10
+  body: none
+  auth: inherit
+}
+
+params:query {
+  q: rosersberg
+  count: 10
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

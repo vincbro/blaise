@@ -1,7 +1,10 @@
 use std::{
     cmp,
+    iter::Sum,
     ops::{Add, Div, Mul, Sub},
 };
+
+use serde::{Deserialize, Serialize};
 
 use crate::engine::{AVERAGE_STOP_DISTANCE, LATITUDE_DISTANCE, LONGITUDE_DISTANCE};
 
@@ -83,10 +86,34 @@ impl Distance {
     }
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Coordinate {
     pub latitude: f64,
     pub longitude: f64,
+}
+
+impl Sum for Coordinate {
+    fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
+        let mut count: usize = 0;
+        let mut lat: f64 = 0.0;
+        let mut lon: f64 = 0.0;
+        iter.for_each(|coordinate| {
+            count += 1;
+            lat += coordinate.latitude;
+            lon += coordinate.longitude;
+        });
+        let count = count as f64;
+        Self {
+            latitude: lat / count,
+            longitude: lon / count,
+        }
+    }
+}
+
+impl From<Coordinate> for (f64, f64) {
+    fn from(value: Coordinate) -> Self {
+        (value.latitude, value.longitude)
+    }
 }
 
 impl Coordinate {

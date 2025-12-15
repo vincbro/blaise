@@ -21,6 +21,21 @@ pub enum Transition {
     Genesis,
 }
 
+impl Transition {
+    pub fn switch_cost(&self, other: &Self) -> bool {
+        use Transition::*;
+        matches!(
+            (self, other),
+            (Travel { .. }, Walk)
+                | (Travel { .. }, Transfer { .. })
+                | (Walk, Walk)
+                | (Transfer { .. }, Transfer { .. })
+                | (Transfer { .. }, Walk)
+                | (Walk, Transfer { .. })
+        )
+    }
+}
+
 pub type SearchStateRef = Rc<SearchState>;
 #[derive(Debug, Clone)]
 pub struct SearchState {
@@ -44,12 +59,11 @@ impl SearchState {
         let distance = from.coordinate.distance(&to.coordinate);
         let time_to_walk = time_to_walk(&distance);
 
-        let switch_penalty = if let Transition::Travel { .. } = from.transition {
+        let penalty = if from.transition.switch_cost(&Transition::Walk) {
             1
         } else {
             0
         };
-
         Self {
             stop_idx: Some(to.index),
             coordinate: to.coordinate,
@@ -57,7 +71,7 @@ impl SearchState {
             g_distance: from.g_distance + distance,
             g_time: from.g_time + time_to_walk,
             h_distance: to.coordinate.distance(&end.coordinate),
-            penalties: from.penalties + switch_penalty,
+            penalties: from.penalties + penalty,
             transition: Transition::Walk,
             parent: Some(from.clone()),
         }
@@ -72,7 +86,13 @@ impl SearchState {
         let distance = from.coordinate.distance(&to.coordinate);
         let time_to_transfer = transfer.min_transfer_time.unwrap_or(0) + time_to_walk(&distance);
 
-        let switch_penalty = if let Transition::Travel { .. } = from.transition {
+        let transition = Transition::Transfer {
+            from_stop_idx: transfer.from_stop_idx,
+            to_stop_idx: transfer.to_stop_idx,
+            to_trip_idx: transfer.to_trip_idx,
+        };
+
+        let penalty = if from.transition.switch_cost(&transition) {
             1
         } else {
             0
@@ -85,12 +105,8 @@ impl SearchState {
             g_distance: from.g_distance + distance,
             g_time: from.g_time + time_to_transfer,
             h_distance: to.coordinate.distance(&end.coordinate),
-            penalties: from.penalties + switch_penalty,
-            transition: Transition::Transfer {
-                from_stop_idx: transfer.from_stop_idx,
-                to_stop_idx: transfer.to_stop_idx,
-                to_trip_idx: transfer.to_trip_idx,
-            },
+            penalties: from.penalties + penalty,
+            transition,
             parent: Some(from.clone()),
         }
     }
@@ -123,10 +139,12 @@ impl SearchState {
             _ => from.coordinate.distance(&to.coordinate),
         };
 
-        let switch_penalty = if matches!(
-            from.transition,
-            Transition::Walk | Transition::Transfer { .. } | Transition::Genesis
-        ) {
+        let transition = Transition::Travel {
+            trip_idx: new_stop_time.trip_idx,
+            sequence: new_stop_time.sequence,
+        };
+
+        let penalty = if from.transition.switch_cost(&transition) {
             1
         } else {
             0
@@ -139,28 +157,16 @@ impl SearchState {
             g_distance: from.g_distance + dist_delta,
             g_time: from.g_time + (arrival_time - from.current_time),
             h_distance: to.coordinate.distance(&end.coordinate),
-            penalties: from.penalties + switch_penalty,
-            transition: Transition::Travel {
-                trip_idx: new_stop_time.trip_idx,
-                sequence: new_stop_time.sequence,
-            },
+            penalties: from.penalties + penalty,
+            transition,
             parent: Some(from.clone()),
         }
     }
 
     pub fn cost(&self) -> usize {
-        // (self.h_distance + self.g_distance).as_meters().floor() as usize + self.g_time
-        // self.h_distance.as_meters().floor() as usize + self.g_time
-
-        // 1. Heuristic Time (H)
-        // We convert the remaining distance to time using a fast speed (e.g. ~100 km/h).
-        // This ensures the heuristic is 'admissible' (never overestimates the cost),
-        // which is required for A* to find the optimal path.
-        const MAX_TRANSIT_SPEED: f64 = 28.0; // 28 m/s is roughly 100 km/h
+        // 28 m/s is roughly 100 km/h
+        const MAX_TRANSIT_SPEED: f64 = 28.0;
         let h_time = (self.h_distance.as_meters() / MAX_TRANSIT_SPEED) as usize;
-
-        // 2. Base Cost: Total Time (G + H)
-        // This makes "Faster" the primary goal.
         let time_cost = self.g_time + h_time;
         time_cost + (self.penalties * 256)
     }
