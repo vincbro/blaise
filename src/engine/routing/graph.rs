@@ -8,7 +8,7 @@ use crate::engine::{
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Transition {
-    Travel {
+    Transit {
         trip_idx: usize,
         sequence: usize,
     },
@@ -26,13 +26,25 @@ impl Transition {
         use Transition::*;
         matches!(
             (self, other),
-            (Travel { .. }, Walk)
-                | (Travel { .. }, Transfer { .. })
+            (Transit { .. }, Walk)
+                | (Transit { .. }, Transfer { .. })
                 | (Walk, Walk)
                 | (Transfer { .. }, Transfer { .. })
                 | (Transfer { .. }, Walk)
                 | (Walk, Transfer { .. })
         )
+    }
+
+    pub fn is_same_leg(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Transition::Walk, Transition::Walk) => true,
+            (
+                Transition::Transit { trip_idx: t1, .. },
+                Transition::Transit { trip_idx: t2, .. },
+            ) => t1 == t2,
+            (Transition::Transfer { .. }, Transition::Transfer { .. }) => false,
+            _ => false,
+        }
     }
 }
 
@@ -139,7 +151,7 @@ impl SearchState {
             _ => from.coordinate.distance(&to.coordinate),
         };
 
-        let transition = Transition::Travel {
+        let transition = Transition::Transit {
             trip_idx: new_stop_time.trip_idx,
             sequence: new_stop_time.sequence,
         };

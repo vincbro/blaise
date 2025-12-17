@@ -21,7 +21,7 @@ pub use trip::*;
 use crate::{
     engine::{
         geo::{Coordinate, Distance},
-        routing::{Router, Waypoint},
+        routing::{Location, Router},
     },
     gtfs::{self, Gtfs},
 };
@@ -381,7 +381,7 @@ impl Engine {
         search::search(needle, &self.stops)
     }
 
-    pub fn router(&self, from: Waypoint, to: Waypoint) -> Result<Router, routing::Error> {
+    pub fn router(&self, from: Location, to: Location) -> Result<Router, routing::Error> {
         Router::new(self.clone(), from, to)
     }
 }

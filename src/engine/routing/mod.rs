@@ -1,6 +1,7 @@
 use std::{collections::BinaryHeap, sync::Arc};
 
 pub mod graph;
+pub mod itinerary;
 
 use thiserror::Error;
 
@@ -8,36 +9,44 @@ use crate::engine::{
     AVERAGE_STOP_DISTANCE, Area, Engine, StopTime,
     geo::{Coordinate, Distance},
     parse_gtfs_time,
-    routing::graph::{SearchState, SearchStateRef, Transition},
+    routing::{
+        graph::{SearchState, SearchStateRef, Transition},
+        itinerary::Itinerary,
+    },
 };
 
 #[derive(Error, Debug)]
 pub enum Error {
-    #[error("Stop id does not match any entry")]
+    #[error("Area id does not match any entry")]
     InvalidAreaID,
+    #[error("Stop id does not match any entry")]
+    InvalidStopID,
+    #[error("A route was found but failed to build it")]
+    FailedToBuildRoute,
     #[error("Could not find a route")]
     NoRouteFound,
 }
 
 #[derive(Debug, Clone)]
-pub enum Waypoint {
+pub enum Location {
     Area(Arc<str>),
+    Stop(Arc<str>),
     Coordinate(Coordinate),
 }
 
-impl From<&Area> for Waypoint {
+impl From<&Area> for Location {
     fn from(value: &Area) -> Self {
         Self::Area(value.id.clone())
     }
 }
 
-impl From<Area> for Waypoint {
+impl From<Area> for Location {
     fn from(value: Area) -> Self {
         Self::Area(value.id)
     }
 }
 
-impl From<Coordinate> for Waypoint {
+impl From<Coordinate> for Location {
     fn from(value: Coordinate) -> Self {
         Self::Coordinate(value)
     }
@@ -47,18 +56,20 @@ pub struct Router {
     engine: Engine,
     heap: BinaryHeap<SearchStateRef>,
     best_cost: Vec<usize>,
+    from: Location,
     start: SearchStateRef,
+    to: Location,
     end: SearchStateRef,
     walk_distance: Distance,
 }
 
 impl Router {
-    pub fn new(engine: Engine, from: Waypoint, to: Waypoint) -> Result<Self, self::Error> {
+    pub fn new(engine: Engine, from: Location, to: Location) -> Result<Self, self::Error> {
         // Build end state
-        let end: SearchStateRef = match to {
-            Waypoint::Area(id) => {
+        let end: SearchStateRef = match &to {
+            Location::Area(id) => {
                 let coordinate = engine
-                    .coordinate_by_area_id(&id)
+                    .coordinate_by_area_id(id)
                     .ok_or(self::Error::InvalidAreaID)?;
                 Ok(SearchState {
                     stop_idx: None,
@@ -72,9 +83,23 @@ impl Router {
                     parent: None,
                 })
             }
-            Waypoint::Coordinate(coordinate) => Ok(SearchState {
+            Location::Stop(id) => {
+                let stop = engine.stop_by_id(id).ok_or(self::Error::InvalidStopID)?;
+                Ok(SearchState {
+                    stop_idx: None,
+                    coordinate: stop.coordinate,
+                    current_time: 0,
+                    g_distance: Default::default(),
+                    g_time: 0,
+                    h_distance: Default::default(),
+                    penalties: 0,
+                    transition: Transition::Genesis,
+                    parent: None,
+                })
+            }
+            Location::Coordinate(coordinate) => Ok(SearchState {
                 stop_idx: None,
-                coordinate,
+                coordinate: *coordinate,
                 current_time: 0,
                 g_distance: Default::default(),
                 g_time: 0,
@@ -87,10 +112,10 @@ impl Router {
         .into();
 
         // Build start state
-        let start: SearchStateRef = match from {
-            Waypoint::Area(id) => {
+        let start: SearchStateRef = match &from {
+            Location::Area(id) => {
                 let coordinate = engine
-                    .coordinate_by_area_id(&id)
+                    .coordinate_by_area_id(id)
                     .ok_or(self::Error::InvalidAreaID)?;
                 let distance = coordinate.distance(&end.coordinate);
                 Ok(SearchState {
@@ -105,9 +130,24 @@ impl Router {
                     parent: None,
                 })
             }
-            Waypoint::Coordinate(coordinate) => Ok(SearchState {
+            Location::Stop(id) => {
+                let stop = engine.stop_by_id(id).ok_or(self::Error::InvalidStopID)?;
+                let distance = stop.coordinate.distance(&end.coordinate);
+                Ok(SearchState {
+                    stop_idx: None,
+                    coordinate: stop.coordinate,
+                    current_time: parse_gtfs_time("16:00:00").unwrap(),
+                    g_distance: Default::default(),
+                    g_time: 0,
+                    h_distance: distance,
+                    penalties: 0,
+                    transition: Transition::Genesis,
+                    parent: None,
+                })
+            }
+            Location::Coordinate(coordinate) => Ok(SearchState {
                 stop_idx: None,
-                coordinate,
+                coordinate: *coordinate,
                 current_time: parse_gtfs_time("16:00:00").unwrap(),
                 g_distance: Default::default(),
                 g_time: 0,
@@ -124,7 +164,9 @@ impl Router {
             engine,
             heap: Default::default(),
             walk_distance: AVERAGE_STOP_DISTANCE,
+            from,
             start,
+            to,
             end,
         })
     }
@@ -134,7 +176,7 @@ impl Router {
         self
     }
 
-    pub fn run(&mut self) -> Result<Vec<SearchStateRef>, self::Error> {
+    pub fn run(mut self) -> Result<Itinerary, self::Error> {
         // Find all stops close to the start and set them as possible routes
         self.add_walk_neigbours(&self.start.clone());
 
@@ -142,15 +184,15 @@ impl Router {
             let distance_to_end = self.end.coordinate.distance(&state.coordinate);
             // This is true if we can walk to the end
             if distance_to_end <= self.walk_distance {
-                let mut route: Vec<SearchStateRef> = vec![];
-                route.push(self.end.clone());
+                let mut route = vec![self.end];
                 let mut next = Some(state);
                 while let Some(state) = next {
                     next = state.parent.clone();
                     route.push(state);
                 }
                 route.reverse();
-                return Ok(route);
+                return Itinerary::new(self.from, self.to, &route, &self.engine)
+                    .ok_or(self::Error::FailedToBuildRoute);
             }
             self.add_neigbours(&state);
             if state.transition != Transition::Walk {
@@ -177,7 +219,7 @@ impl Router {
 
     fn add_neigbours(&mut self, from_node: &SearchStateRef) {
         match from_node.transition {
-            Transition::Travel { trip_idx, sequence } => {
+            Transition::Transit { trip_idx, sequence } => {
                 // If we are traveling we will continue down the path
                 let trip = &self.engine.trips[trip_idx];
                 let stop_times = self.engine.stop_times_by_trip_id(&trip.id).unwrap();
