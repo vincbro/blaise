@@ -7,10 +7,7 @@ use axum::{
 use ontrack::engine::{
     Engine,
     geo::Coordinate,
-    routing::{
-        Location,
-        graph::{SearchState, Transition},
-    },
+    routing::graph::{Location, SearchState, Transition},
 };
 use std::{collections::HashMap, sync::Arc};
 
@@ -38,7 +35,16 @@ pub async fn routing(
         .router(from, to)
         .map_err(|_| StatusCode::BAD_REQUEST)?;
     let itinerary = router.run().map_err(|_| StatusCode::BAD_REQUEST)?;
-    dbg!(itinerary);
+    for leg in itinerary.legs.into_iter() {
+        println!(
+            "{} from {} to {} with {} steps",
+            leg.mode,
+            get_name(&leg.from, &state.engine),
+            get_name(&leg.to, &state.engine),
+            leg.instructions.len()
+        );
+    }
+    // dbg!(itinerary);
     Ok("SUP".into_response())
 }
 
@@ -69,13 +75,18 @@ fn waypoint_from_str(engine: &Engine, str: &str) -> Result<Location, StatusCode>
 }
 
 // TEMP
-fn get_name(state: &SearchState, engine: &Engine) -> String {
-    match state.stop_idx {
-        Some(stop_idx) => engine.stops[stop_idx].name.to_string(),
-        None => format!(
-            "{}, {}",
-            state.coordinate.latitude, state.coordinate.longitude,
-        ),
+fn get_name(location: &Location, engine: &Engine) -> String {
+    match location {
+        Location::Area(id) => engine
+            .area_by_id(id)
+            .map(|value| value.name.to_string())
+            .unwrap_or(id.to_string()),
+        Location::Stop(id) => engine
+            .stop_by_id(id)
+            .map(|value| value.name.to_string())
+            .unwrap_or(id.to_string()),
+
+        Location::Coordinate(coordinate) => coordinate.to_string(),
     }
 }
 

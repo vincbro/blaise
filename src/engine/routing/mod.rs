@@ -1,4 +1,4 @@
-use std::{collections::BinaryHeap, sync::Arc};
+use std::collections::BinaryHeap;
 
 pub mod graph;
 pub mod itinerary;
@@ -10,7 +10,7 @@ use crate::engine::{
     geo::{Coordinate, Distance},
     parse_gtfs_time,
     routing::{
-        graph::{SearchState, SearchStateRef, Transition},
+        graph::{Location, SearchState, SearchStateRef, Transition},
         itinerary::Itinerary,
     },
 };
@@ -25,31 +25,6 @@ pub enum Error {
     FailedToBuildRoute,
     #[error("Could not find a route")]
     NoRouteFound,
-}
-
-#[derive(Debug, Clone)]
-pub enum Location {
-    Area(Arc<str>),
-    Stop(Arc<str>),
-    Coordinate(Coordinate),
-}
-
-impl From<&Area> for Location {
-    fn from(value: &Area) -> Self {
-        Self::Area(value.id.clone())
-    }
-}
-
-impl From<Area> for Location {
-    fn from(value: Area) -> Self {
-        Self::Area(value.id)
-    }
-}
-
-impl From<Coordinate> for Location {
-    fn from(value: Coordinate) -> Self {
-        Self::Coordinate(value)
-    }
 }
 
 pub struct Router {

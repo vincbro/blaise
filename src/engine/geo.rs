@@ -1,5 +1,6 @@
 use std::{
     cmp,
+    fmt::Display,
     iter::Sum,
     ops::{Add, Div, Mul, Sub},
 };
@@ -90,6 +91,12 @@ impl Distance {
 pub struct Coordinate {
     pub latitude: f64,
     pub longitude: f64,
+}
+
+impl Display for Coordinate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("{}, {}", self.latitude, self.longitude))
+    }
 }
 
 impl Sum for Coordinate {

@@ -1,10 +1,35 @@
-use std::rc::Rc;
+use std::{rc::Rc, sync::Arc};
 
 use crate::engine::{
-    Stop, StopTime, Transfer,
+    Area, Stop, StopTime, Transfer,
     geo::{Coordinate, Distance},
     routing::time_to_walk,
 };
+
+#[derive(Debug, Clone)]
+pub enum Location {
+    Area(Arc<str>),
+    Stop(Arc<str>),
+    Coordinate(Coordinate),
+}
+
+impl From<&Area> for Location {
+    fn from(value: &Area) -> Self {
+        Self::Area(value.id.clone())
+    }
+}
+
+impl From<Area> for Location {
+    fn from(value: Area) -> Self {
+        Self::Area(value.id)
+    }
+}
+
+impl From<Coordinate> for Location {
+    fn from(value: Coordinate) -> Self {
+        Self::Coordinate(value)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Transition {
@@ -36,13 +61,18 @@ impl Transition {
     }
 
     pub fn is_same_leg(&self, other: &Self) -> bool {
+        self.inner_is_same_leg(other) && other.inner_is_same_leg(self)
+    }
+
+    fn inner_is_same_leg(&self, other: &Self) -> bool {
         match (self, other) {
             (Transition::Walk, Transition::Walk) => true,
+            (Transition::Walk, Transition::Transit { .. }) => false,
+            (Transition::Transfer { .. }, Transition::Transit { .. }) => false,
             (
                 Transition::Transit { trip_idx: t1, .. },
                 Transition::Transit { trip_idx: t2, .. },
             ) => t1 == t2,
-            (Transition::Transfer { .. }, Transition::Transfer { .. }) => false,
             _ => false,
         }
     }

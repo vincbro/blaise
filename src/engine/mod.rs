@@ -21,7 +21,7 @@ pub use trip::*;
 use crate::{
     engine::{
         geo::{Coordinate, Distance},
-        routing::{Location, Router},
+        routing::{Router, graph::Location},
     },
     gtfs::{self, Gtfs},
 };
