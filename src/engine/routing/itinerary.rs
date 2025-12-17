@@ -54,13 +54,17 @@ impl Itinerary {
             let prev = &states[i - 1];
             let curr = &states[i];
 
-            if prev.transition.is_same_leg(&curr.transition) {
+            if !prev.transition.is_same_leg(&curr.transition) {
                 // Process chunk
                 legs.push(Leg::process_chunk(&chunk, engine));
-                chunk = vec![curr];
+                chunk = vec![prev, curr];
             } else {
                 chunk.push(curr);
             }
+        }
+
+        if !chunk.is_empty() {
+            legs.push(Leg::process_chunk(&chunk, engine));
         }
 
         Some(Self { from, to, legs })

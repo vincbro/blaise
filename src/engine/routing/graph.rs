@@ -61,18 +61,14 @@ impl Transition {
     }
 
     pub fn is_same_leg(&self, other: &Self) -> bool {
-        self.inner_is_same_leg(other) && other.inner_is_same_leg(self)
+        self.inner_is_same_leg(other) || other.inner_is_same_leg(self)
     }
 
     fn inner_is_same_leg(&self, other: &Self) -> bool {
         match (self, other) {
-            (Transition::Walk, Transition::Walk) => true,
-            (Transition::Walk, Transition::Transit { .. }) => false,
-            (Transition::Transfer { .. }, Transition::Transit { .. }) => false,
-            (
-                Transition::Transit { trip_idx: t1, .. },
-                Transition::Transit { trip_idx: t2, .. },
-            ) => t1 == t2,
+            (Self::Genesis, Self::Walk) => true,
+            // (Self::Transit { .. }, Self::Walk) => true,
+            (Self::Transit { trip_idx: t1, .. }, Self::Transit { trip_idx: t2, .. }) => t1 == t2,
             _ => false,
         }
     }
