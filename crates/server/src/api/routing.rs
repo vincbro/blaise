@@ -42,12 +42,12 @@ pub async fn routing(
 fn location_from_str(repo: &Repository, str: &str) -> Result<Location, StatusCode> {
     if str.contains(',') {
         let split: Vec<_> = str.split(',').collect();
-        let latitude: f64 = split
+        let latitude: f32 = split
             .first()
             .ok_or(StatusCode::BAD_REQUEST)?
             .parse()
             .map_err(|_| StatusCode::BAD_REQUEST)?;
-        let longitude: f64 = split
+        let longitude: f32 = split
             .last()
             .ok_or(StatusCode::BAD_REQUEST)?
             .parse()

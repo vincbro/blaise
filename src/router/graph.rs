@@ -215,7 +215,7 @@ impl SearchState {
 
     pub fn cost(&self) -> u32 {
         // 28 m/s is roughly 100 km/h
-        const MAX_TRANSIT_SPEED: f64 = 28.0;
+        const MAX_TRANSIT_SPEED: f32 = 28.0;
         let h_time =
             Duration::from_seconds((self.h_distance.as_meters() / MAX_TRANSIT_SPEED) as u32);
         let cost = self.g_time + h_time + Duration::from_seconds(self.penalties);

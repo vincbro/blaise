@@ -446,6 +446,6 @@ impl Router {
 
 pub const fn time_to_walk(distance: &Distance) -> Duration {
     // m/s
-    const AVERAGE_WALK_SPEED: f64 = 1.5;
+    const AVERAGE_WALK_SPEED: f32 = 1.5;
     Duration::from_seconds((distance.as_meters() / AVERAGE_WALK_SPEED).ceil() as u32)
 }

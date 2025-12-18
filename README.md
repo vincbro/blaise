@@ -1,38 +1,67 @@
 ![ontrack](./assets/ontrack_slim.png)
 
-On Track is a high-performance Rust library for loading, routing, searching, and querying GTFS transit data,
-designed for minimal runtime allocations and fast lookups.
+On Track is a high-performance Rust library designed to make transit data easy to work with.
+It handles the heavy lifting of loading, searching, and routing through complex GTFS transit schedules so you can focus on building your application.
 
 > [!NOTE]
 > This project is early in development, if you like the idea and want to help improve it, please open an issue.
 
+## Key Features
+
+- **Simplified Integration**: Stop worrying about GTFS parsing; just point the library at a .zip file and start querying.
+- **Reliable Routing**: Give your users accurate itineraries that account for every transfer and walking connection.
+- **Search that Just Works**: Implement high-quality location search without needing external search engines.
+- **Location Intelligence**: Easily connect coordinates to transit infrastructure to power "near me" features.
+- **Efficient Resource Use**: Deploy on smaller, more cost-effective servers thanks to a highly optimized, low-memory design.
+
 ## Installation
+
+Add On Track to your Cargo.toml:
 ```bash
 cargo add ontrack
 ```
 
-## Design
-The `ontrack` `engine` is designed to be **immutable** and **thread-safe**. All data is stored only once on the heap, and the engine works by passing around references rather than cloning or reallocating existing structures.
+## Quick Start
 
+```rust
+use ontrack::gtfs::{Gtfs, Config};
+use ontrack::repository::Repository;
+use ontrack::router::{Router, graph::Location};
+use ontrack::shared::time::Time;
 
-Entities such as `stops`, `areas`, and others are stored as `Arc<[T]>` slices, and all strings are held as `Arc<str>`. This ensures thread safety and keeps the memory footprint low, since no entity is ever allocated more than once.
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let gtfs = Gtfs::new(Config::default()).from_zip("transit_data.zip")?;
+    let repo = Repository::new().with_gtfs(gtfs)?;
 
+    let from = Location::Stop("STOP_ID_1".into());
+    let to = Location::Coordinate(ontrack::shared::geo::Coordinate { latitude: 59.3, longitude: 18.0 });
+    let departure = Time::from_seconds(36000); // 10:00 AM
 
-The only time the `engine` allocates new memory is when performing request-driven operations such as **search** operations. In those cases, the newly allocated memory is owned entirely by the consumer (i.e., you). In a scenario like a web server, this means the allocated data exists only for the duration of the request and is freed immediately afterward.
+    let itinerary = Router::new(repo, from, to, departure)?.run()?;
 
-## Implemented
-- Load GTFS data directly from `.zip` archives.
-- In-memory GTFS engine for fast read/query operations.
-- Direct querying of entities by ID.
-- Fuzzy search for stops and geographic areas.
-- Distance-based search for stops and areas.
-- Simple distance-based routing.
-- Time-based routing and schedule-aware journey planning.
+    println!("Found a route with {} legs!", itinerary.legs.len());
+    Ok(())
+} 
+```
+
+## Core Concepts
+
+- **Repository**: Your central hub for transit data. It holds all the stops, routes, and schedules in a format optimized for speed.
+- **Router**: The logic engine that finds the best path. It understands how to connect different bus or train lines with walking paths.
+- **Shared Utilities**: Built-in tools for handling geographic distances and transit-specific time calculations.
 
 ## Roadmap
-- Server (`crates/server`)
-- Multi threaded routing
+
+- [ ] Production-ready web server crate with docker image
+- [ ] Multi-threaded routing for even faster results
+- [ ] Real-time data updates (GTFS-RT)
+- [ ] Advanced date and holiday filtering
 
 ## Refrences
+
 - [GTFS Specification](https://gtfs.org/documentation/schedule/reference/)
 - [Development Data (Sweden):](https://www.trafiklab.se/api/gtfs-datasets/gtfs-sweden/static-specification/)
+
+## License
+
+This project is licensed under the MIT License.

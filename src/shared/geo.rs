@@ -12,7 +12,7 @@ pub(crate) const LONGITUDE_DISTANCE: Distance = Distance::from_meters(111_320.0)
 pub(crate) const LATITUDE_DISTANCE: Distance = Distance::from_meters(110_540.0);
 
 #[derive(Debug, Clone, Copy, Default)]
-pub struct Distance(f64);
+pub struct Distance(f32);
 
 impl PartialEq for Distance {
     fn eq(&self, other: &Self) -> bool {
@@ -56,27 +56,27 @@ impl Div for Distance {
 }
 
 impl Distance {
-    pub const fn from_meters(distance: f64) -> Self {
+    pub const fn from_meters(distance: f32) -> Self {
         Self(distance)
     }
 
-    pub const fn from_kilometers(distance: f64) -> Self {
+    pub const fn from_kilometers(distance: f32) -> Self {
         Self(distance * 1000.0)
     }
 
-    pub const fn as_meters(&self) -> f64 {
+    pub const fn as_meters(&self) -> f32 {
         self.0
     }
 
-    pub const fn as_kilometers(&self) -> f64 {
+    pub const fn as_kilometers(&self) -> f32 {
         self.0 / 1000.0
     }
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Coordinate {
-    pub latitude: f64,
-    pub longitude: f64,
+    pub latitude: f32,
+    pub longitude: f32,
 }
 
 impl Display for Coordinate {
@@ -88,14 +88,14 @@ impl Display for Coordinate {
 impl Sum for Coordinate {
     fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
         let mut count: usize = 0;
-        let mut lat: f64 = 0.0;
-        let mut lon: f64 = 0.0;
+        let mut lat: f32 = 0.0;
+        let mut lon: f32 = 0.0;
         iter.for_each(|coordinate| {
             count += 1;
             lat += coordinate.latitude;
             lon += coordinate.longitude;
         });
-        let count = count as f64;
+        let count = count as f32;
         Self {
             latitude: lat / count,
             longitude: lon / count,
@@ -103,7 +103,7 @@ impl Sum for Coordinate {
     }
 }
 
-impl From<Coordinate> for (f64, f64) {
+impl From<Coordinate> for (f32, f32) {
     fn from(value: Coordinate) -> Self {
         (value.latitude, value.longitude)
     }
@@ -111,20 +111,20 @@ impl From<Coordinate> for (f64, f64) {
 
 impl Coordinate {
     pub fn euclidean_distance(&self, coord: &Self) -> Distance {
-        const R: f64 = 6371.0;
-        let dist_lat = f64::to_radians(coord.latitude - self.latitude);
-        let dist_lon = f64::to_radians(coord.longitude - self.longitude);
-        let a = f64::powi(f64::sin(dist_lat / 2.0), 2)
-            + f64::cos(f64::to_radians(self.latitude))
-                * f64::cos(f64::to_radians(coord.latitude))
-                * f64::sin(dist_lon / 2.0)
-                * f64::sin(dist_lon / 2.0);
-        let c = 2.0 * f64::atan2(f64::sqrt(a), f64::sqrt(1.0 - a));
+        const R: f32 = 6371.0;
+        let dist_lat = f32::to_radians(coord.latitude - self.latitude);
+        let dist_lon = f32::to_radians(coord.longitude - self.longitude);
+        let a = f32::powi(f32::sin(dist_lat / 2.0), 2)
+            + f32::cos(f32::to_radians(self.latitude))
+                * f32::cos(f32::to_radians(coord.latitude))
+                * f32::sin(dist_lon / 2.0)
+                * f32::sin(dist_lon / 2.0);
+        let c = 2.0 * f32::atan2(f32::sqrt(a), f32::sqrt(1.0 - a));
         Distance::from_kilometers(R * c)
     }
 
     pub fn network_distance(&self, coord: &Self) -> Distance {
-        const CIRCUITY_FACTOR: f64 = 1.3;
+        const CIRCUITY_FACTOR: f32 = 1.3;
         Distance::from_meters(self.euclidean_distance(coord).as_meters() * CIRCUITY_FACTOR)
     }
 

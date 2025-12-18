@@ -83,8 +83,8 @@ impl LegDto {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct InstructionDto {
     pub location: LocationDto,
-    pub distance_km: f64,
-    pub distance_m: f64,
+    pub distance_km: f32,
+    pub distance_m: f32,
     pub arrival_time: String,
 }
 impl InstructionDto {
