@@ -21,7 +21,7 @@ pub use trip::*;
 use crate::{
     engine::{
         geo::{Coordinate, Distance},
-        routing::{Router, Waypoint},
+        routing::{Router, graph::Location},
     },
     gtfs::{self, Gtfs},
 };
@@ -72,6 +72,7 @@ impl Engine {
     /// Depending on the size of the data this can be a long blocking function
     pub fn with_gtfs(mut self, mut gtfs: Gtfs) -> Result<Self, gtfs::Error> {
         // Build stop data set
+        print!("Loading stops...");
         let mut stop_lookup: IdToIndex = HashMap::new();
         let mut stops: Vec<Stop> = Vec::new();
         gtfs.stream_stops(|(i, stop)| {
@@ -82,9 +83,10 @@ impl Engine {
         })?;
         self.stops = stops.into();
         self.stop_lookup = stop_lookup.into();
-        println!("Stops done");
+        println!("OK");
 
         // Build area data set
+        print!("Loading area...");
         let mut area_lookup: IdToIndex = HashMap::new();
         let mut areas: Vec<Area> = Vec::new();
         gtfs.stream_areas(|(i, area)| {
@@ -95,9 +97,10 @@ impl Engine {
         })?;
         self.areas = areas.into();
         self.area_lookup = area_lookup.into();
-        println!("Areas done");
+        println!("OK");
 
         // Build stop_area data set
+        print!("Loading area to stop...");
         let mut area_to_stops: HashMap<Arc<str>, Vec<Arc<str>>> = HashMap::new();
         let mut stop_to_area: IdToId = HashMap::new();
         gtfs.stream_stop_areas(|(_, value)| {
@@ -115,16 +118,16 @@ impl Engine {
                 area_to_stops.insert(area_id, vec![stop_id]);
             }
         })?;
-
         self.stop_to_area = stop_to_area.into();
         let area_to_stops: IdToIds = area_to_stops
             .into_iter()
             .map(|(key, value)| (key, value.into()))
             .collect();
         self.area_to_stops = area_to_stops.into();
-        println!("Area to stops done");
+        println!("OK");
 
         // Build trip data set
+        print!("Loading trips...");
         let mut trip_lookup: IdToIndex = HashMap::new();
         let mut trips: Vec<Trip> = Vec::new();
         gtfs.stream_trips(|(i, trip)| {
@@ -135,9 +138,10 @@ impl Engine {
         })?;
         self.trips = trips.into();
         self.trip_lookup = trip_lookup.into();
-        println!("Trips done");
+        println!("OK");
 
         // Loading in transfers
+        print!("Loading transfers...");
         let mut transfers: Vec<Transfer> = Vec::new();
         let mut stop_to_transfers: HashMap<Arc<str>, Vec<usize>> = HashMap::new();
         gtfs.stream_transfers(|(i, transfer)| {
@@ -191,9 +195,10 @@ impl Engine {
             .map(|(key, value)| (key, value.into()))
             .collect();
         self.stop_to_transfers = stop_to_transfers.into();
-        println!("Transfers done");
+        println!("OK");
 
         // Build stop_time data set
+        print!("Loading stop times...");
         let mut trip_to_stop_times: HashMap<Arc<str>, Vec<usize>> = HashMap::new();
         let mut stop_to_trips: HashMap<Arc<str>, Vec<Arc<str>>> = HashMap::new();
         let mut stop_times: Vec<StopTime> = Vec::new();
@@ -234,12 +239,13 @@ impl Engine {
             .map(|(key, value)| (key, value.into()))
             .collect();
         self.stop_to_trips = stop_to_trips.into();
-        println!("Stop times done");
+        println!("OK");
 
         // Link area->stop->real world stop (stops that are linked to any trip)
         // This has to be last because it ties togheter alot
         // To save space and not having a O(n^2) operation trying to map each stop
         // to its nearby stops, we are going to map each stop with trips into a grid
+        print!("Building distance grid...");
         let mut stop_distance_lookup: HashMap<(i32, i32), Vec<Arc<str>>> = HashMap::new();
         self.stops
             .iter()
@@ -256,7 +262,7 @@ impl Engine {
             .map(|(cell, stops)| (cell, stops.into()))
             .collect();
         self.stop_distance_lookup = stop_distance_lookup.into();
-        println!("Area to stops to real world stops done");
+        println!("OK");
 
         Ok(self)
     }
@@ -295,6 +301,15 @@ impl Engine {
     pub fn area_by_stop_id(&self, stop_id: &str) -> Option<&Area> {
         let area_id = self.stop_to_area.get(stop_id)?;
         self.area_by_id(area_id)
+    }
+
+    pub fn coordinate_by_area_id(&self, area_id: &str) -> Option<Coordinate> {
+        Some(
+            self.stops_by_area_id(area_id)?
+                .iter()
+                .map(|stop| stop.coordinate)
+                .sum(),
+        )
     }
 
     /// Get all the possible transfers from a stop
@@ -345,7 +360,7 @@ impl Engine {
                 if let Some(stop_ids) = self.stop_distance_lookup.get(&cell) {
                     stop_ids.iter().for_each(|stop_id| {
                         if let Some(stop) = self.stop_by_id(stop_id)
-                            && stop.coordinate.distance(coordinate) <= distance
+                            && stop.coordinate.euclidean_distance(coordinate) <= distance
                         {
                             stops.push(stop);
                         }
@@ -366,7 +381,7 @@ impl Engine {
         search::search(needle, &self.stops)
     }
 
-    pub fn router(&self, from: Waypoint, to: Waypoint) -> Result<Router, routing::Error> {
+    pub fn router(&self, from: Location, to: Location) -> Result<Router, routing::Error> {
         Router::new(self.clone(), from, to)
     }
 }

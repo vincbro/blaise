@@ -1,7 +1,11 @@
 use std::{
     cmp,
+    fmt::Display,
+    iter::Sum,
     ops::{Add, Div, Mul, Sub},
 };
+
+use serde::{Deserialize, Serialize};
 
 use crate::engine::{AVERAGE_STOP_DISTANCE, LATITUDE_DISTANCE, LONGITUDE_DISTANCE};
 
@@ -83,14 +87,44 @@ impl Distance {
     }
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Coordinate {
     pub latitude: f64,
     pub longitude: f64,
 }
 
+impl Display for Coordinate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("{}, {}", self.latitude, self.longitude))
+    }
+}
+
+impl Sum for Coordinate {
+    fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
+        let mut count: usize = 0;
+        let mut lat: f64 = 0.0;
+        let mut lon: f64 = 0.0;
+        iter.for_each(|coordinate| {
+            count += 1;
+            lat += coordinate.latitude;
+            lon += coordinate.longitude;
+        });
+        let count = count as f64;
+        Self {
+            latitude: lat / count,
+            longitude: lon / count,
+        }
+    }
+}
+
+impl From<Coordinate> for (f64, f64) {
+    fn from(value: Coordinate) -> Self {
+        (value.latitude, value.longitude)
+    }
+}
+
 impl Coordinate {
-    pub fn distance(&self, coord: &Self) -> Distance {
+    pub fn euclidean_distance(&self, coord: &Self) -> Distance {
         const R: f64 = 6371.0;
         let dist_lat = f64::to_radians(coord.latitude - self.latitude);
         let dist_lon = f64::to_radians(coord.longitude - self.longitude);
@@ -101,6 +135,11 @@ impl Coordinate {
                 * f64::sin(dist_lon / 2.0);
         let c = 2.0 * f64::atan2(f64::sqrt(a), f64::sqrt(1.0 - a));
         Distance::kilometers(R * c)
+    }
+
+    pub fn network_distance(&self, coord: &Self) -> Distance {
+        const CIRCUITY_FACTOR: f64 = 1.3;
+        Distance::kilometers(self.euclidean_distance(coord).as_kilometers() * CIRCUITY_FACTOR)
     }
 
     pub fn to_grid(&self) -> (i32, i32) {

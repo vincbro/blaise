@@ -10,9 +10,7 @@ edition = "2024"
 keywords = ["SDK", "SL", "ResRobot", "GTFS"]
 
 [workspace]
-members = [
-    "crates/server",
-]
+members = ["crates/server"]
 resolver = "1"
 
 [workspace.dependencies]

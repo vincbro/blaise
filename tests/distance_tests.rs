@@ -11,7 +11,7 @@ fn distance_test() {
         latitude: 51.5052389927712,
         longitude: -0.12495407345099824,
     };
-    let d = coord_a.distance(&coord_b);
+    let d = coord_a.euclidean_distance(&coord_b);
     assert!((d.as_kilometers() - 343_000.0).abs() > 500.0);
 }
 
