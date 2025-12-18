@@ -21,11 +21,11 @@ pub async fn search(
             None => 5,
         };
         let result: Vec<_> = state
-            .engine
+            .repo
             .search_areas_by_name(query)
             .into_iter()
             .take(count)
-            .map(|area| AreaDto::from(area, &state.engine))
+            .map(|area| AreaDto::from(area, &state.repo))
             .collect();
         Ok(Json(result).into_response())
     } else {

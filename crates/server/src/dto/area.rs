@@ -1,4 +1,7 @@
-use ontrack::engine::{Area, Engine, geo::Coordinate};
+use ontrack::{
+    repository::{Area, Repository},
+    shared::geo::Coordinate,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -9,10 +12,10 @@ pub struct AreaDto {
 }
 
 impl AreaDto {
-    pub fn from(area: &Area, engine: &Engine) -> Self {
+    pub fn from(area: &Area, repo: &Repository) -> Self {
         let id = area.id.to_string();
         let name = area.name.to_string();
-        let coordinate: Coordinate = engine
+        let coordinate: Coordinate = repo
             .stops_by_area_id(&area.id)
             .unwrap()
             .into_iter()

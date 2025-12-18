@@ -1,10 +1,10 @@
-use ontrack::engine::{
-    Engine,
-    geo::Coordinate,
-    routing::{
+use ontrack::{
+    repository::Repository,
+    router::{
         graph::Location,
         itinerary::{Instruction, Itinerary, Leg, Mode},
     },
+    shared::geo::Coordinate,
 };
 use serde::{Deserialize, Serialize};
 
@@ -18,14 +18,14 @@ pub enum LocationDto {
 }
 
 impl LocationDto {
-    pub fn from(location: Location, engine: &Engine) -> Option<Self> {
+    pub fn from(location: Location, repo: &Repository) -> Option<Self> {
         match location {
             Location::Area(id) => {
-                let area = engine.area_by_id(&id)?;
-                Some(LocationDto::Area(AreaDto::from(area, engine)))
+                let area = repo.area_by_id(&id)?;
+                Some(LocationDto::Area(AreaDto::from(area, repo)))
             }
             Location::Stop(id) => {
-                let stop = engine.stop_by_id(&id)?;
+                let stop = repo.stop_by_id(&id)?;
                 Some(LocationDto::Stop(StopDto::from(stop)))
             }
             Location::Coordinate(coordinate) => Some(LocationDto::Coordinate(coordinate)),
@@ -41,15 +41,15 @@ pub struct ItineraryDto {
 }
 
 impl ItineraryDto {
-    pub fn from(itinerary: Itinerary, engine: &Engine) -> Option<Self> {
+    pub fn from(itinerary: Itinerary, repo: &Repository) -> Option<Self> {
         let legs: Option<Vec<_>> = itinerary
             .legs
             .into_iter()
-            .map(|leg| LegDto::from(leg, engine))
+            .map(|leg| LegDto::from(leg, repo))
             .collect();
         Some(Self {
-            from: LocationDto::from(itinerary.from, engine)?,
-            to: LocationDto::from(itinerary.to, engine)?,
+            from: LocationDto::from(itinerary.from, repo)?,
+            to: LocationDto::from(itinerary.to, repo)?,
             legs: legs?,
         })
     }
@@ -64,16 +64,16 @@ pub struct LegDto {
 }
 
 impl LegDto {
-    pub fn from(leg: Leg, engine: &Engine) -> Option<Self> {
+    pub fn from(leg: Leg, repo: &Repository) -> Option<Self> {
         let instructions: Option<Vec<_>> = leg
             .instructions
             .into_iter()
-            .map(|instruction| InstructionDto::from(instruction, engine))
+            .map(|instruction| InstructionDto::from(instruction, repo))
             .collect();
 
         Some(Self {
-            from: LocationDto::from(leg.from, engine)?,
-            to: LocationDto::from(leg.to, engine)?,
+            from: LocationDto::from(leg.from, repo)?,
+            to: LocationDto::from(leg.to, repo)?,
             mode: leg.mode,
             instructions: instructions?,
         })
@@ -85,15 +85,15 @@ pub struct InstructionDto {
     pub location: LocationDto,
     pub distance_km: f64,
     pub distance_m: f64,
-    pub arrival_time: usize,
+    pub arrival_time: String,
 }
 impl InstructionDto {
-    pub fn from(instruction: Instruction, engine: &Engine) -> Option<Self> {
+    pub fn from(instruction: Instruction, repo: &Repository) -> Option<Self> {
         Some(Self {
-            location: LocationDto::from(instruction.location, engine)?,
+            location: LocationDto::from(instruction.location, repo)?,
             distance_km: instruction.distance.as_kilometers(),
             distance_m: instruction.distance.as_meters(),
-            arrival_time: instruction.arrival_time,
+            arrival_time: instruction.arrival_time.to_hms_string(),
         })
     }
 }

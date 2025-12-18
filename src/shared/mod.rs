@@ -1,6 +1,14 @@
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 
-use crate::engine::{Identifiable, fuzzy};
+pub(crate) mod fuzzy;
+pub mod geo;
+pub mod time;
+
+pub trait Identifiable {
+    fn id(&self) -> &str;
+    fn name(&self) -> &str;
+    fn normalized_name(&self) -> &str;
+}
 
 /// Generic fuzzy search function built for multithreaded searching.
 pub fn search<'a, T>(needle: &'a str, haystack: &'a [T]) -> Vec<&'a T>

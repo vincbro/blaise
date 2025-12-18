@@ -1,5 +1,13 @@
 use serde::{Deserialize, Serialize};
 
+use crate::{
+    repository::{Area, LocationType, Stop, StopAccessType, StopTime, Timepoint, Trip},
+    shared::{
+        geo::{Coordinate, Distance},
+        time::Time,
+    },
+};
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct GtfsStop {
@@ -12,12 +20,58 @@ pub struct GtfsStop {
     pub platform_code: Option<String>,
 }
 
+impl From<GtfsStop> for Stop {
+    fn from(value: GtfsStop) -> Self {
+        let location_type = if let Some(lt) = value.location_type
+            && lt != 0
+        {
+            match lt {
+                1 => LocationType::Station,
+                2 => LocationType::Entrance(value.parent_station.unwrap_or("0".into()).into()),
+                3 => LocationType::Node,
+                4 => LocationType::Boarding,
+                _ => panic!("SHOULD NEVER BE MORE THEN 4"),
+            }
+        } else if let Some(ps) = value.parent_station {
+            let pc = value.platform_code.unwrap_or("/".into());
+            LocationType::Platform {
+                parent_station: ps.into(),
+                platform_code: pc.into(),
+            }
+        } else {
+            LocationType::Stop
+        };
+
+        Self {
+            index: u32::MAX,
+            id: value.stop_id.into(),
+            name: value.stop_name.clone().into(),
+            normalized_name: value.stop_name.to_lowercase().into(),
+            coordinate: Coordinate {
+                latitude: value.stop_lat,
+                longitude: value.stop_lon,
+            },
+            location_type,
+        }
+    }
+}
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct GtfsArea {
     pub area_id: String,
     pub area_name: String,
     pub samtrafiken_area_type: String,
+}
+
+impl From<GtfsArea> for Area {
+    fn from(value: GtfsArea) -> Self {
+        Self {
+            index: u32::MAX,
+            id: value.area_id.into(),
+            name: value.area_name.clone().into(),
+            normalized_name: value.area_name.to_lowercase().into(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -55,7 +109,7 @@ pub struct GtfsTransfer {
     pub from_stop_id: String,
     pub to_stop_id: String,
     pub transfer_type: String,
-    pub min_transfer_time: Option<usize>,
+    pub min_transfer_time: Option<u32>,
     pub from_trip_id: Option<String>,
     pub to_trip_id: Option<String>,
 }
@@ -67,7 +121,7 @@ pub struct GtfsStopTime {
     pub arrival_time: String,
     pub departure_time: String,
     pub stop_id: String,
-    pub stop_sequence: i64,
+    pub stop_sequence: u16,
     pub stop_headsign: Option<String>,
     pub pickup_type: u8,
     pub drop_off_type: u8,
@@ -75,6 +129,25 @@ pub struct GtfsStopTime {
     pub timepoint: Option<u8>,
     pub pickup_booking_rule_id: Option<String>,
     pub drop_off_booking_rule_id: Option<String>,
+}
+
+impl From<GtfsStopTime> for StopTime {
+    fn from(value: GtfsStopTime) -> Self {
+        Self {
+            trip_id: Default::default(),
+            trip_idx: u32::MAX,
+            stop_id: Default::default(),
+            stop_idx: u32::MAX,
+            sequence: value.stop_sequence,
+            arrival_time: Time::from_hms(&value.arrival_time).unwrap(),
+            departure_time: Time::from_hms(&value.departure_time).unwrap(),
+            headsign: value.stop_headsign.map(|val| val.into()),
+            dist_traveled: value.shape_dist_traveled.map(Distance::from_meters),
+            pickup_type: StopAccessType::Regularly,
+            drop_off_type: StopAccessType::Regularly,
+            timepoint: Timepoint::Exact,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -87,4 +160,15 @@ pub struct GtfsTrip {
     pub trip_short_name: Option<String>,
     pub direction_id: Option<u8>,
     pub shape_id: Option<String>,
+}
+
+impl From<GtfsTrip> for Trip {
+    fn from(value: GtfsTrip) -> Self {
+        Self {
+            index: u32::MAX,
+            id: value.trip_id.into(),
+            headsign: value.trip_headsign.map(|val| val.into()),
+            short_name: value.trip_short_name.map(|val| val.into()),
+        }
+    }
 }

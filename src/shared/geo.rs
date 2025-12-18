@@ -7,37 +7,29 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::engine::{AVERAGE_STOP_DISTANCE, LATITUDE_DISTANCE, LONGITUDE_DISTANCE};
+pub(crate) const AVERAGE_STOP_DISTANCE: Distance = Distance::from_meters(500.0);
+pub(crate) const LONGITUDE_DISTANCE: Distance = Distance::from_meters(111_320.0);
+pub(crate) const LATITUDE_DISTANCE: Distance = Distance::from_meters(110_540.0);
 
-#[derive(Debug, Clone, Copy)]
-pub enum Distance {
-    Meter(f64),
-    Kilometers(f64),
-}
-
-impl Default for Distance {
-    fn default() -> Self {
-        Self::Meter(0.0)
-    }
-}
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Distance(f64);
 
 impl PartialEq for Distance {
     fn eq(&self, other: &Self) -> bool {
-        self.as_meters() == other.as_meters()
+        self.0 == other.0
     }
 }
 
 impl PartialOrd for Distance {
     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
-        self.as_meters().partial_cmp(&other.as_meters())
+        self.0.partial_cmp(&other.0)
     }
 }
 
 impl Add for Distance {
     type Output = Self;
-
     fn add(self, rhs: Self) -> Self::Output {
-        Self::meters(self.as_meters() + rhs.as_meters())
+        Self(self.0 + rhs.0)
     }
 }
 
@@ -45,45 +37,39 @@ impl Sub for Distance {
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        Self::meters(self.as_meters() - rhs.as_meters())
+        Self(self.0 - rhs.0)
     }
 }
 
 impl Mul for Distance {
     type Output = Self;
     fn mul(self, rhs: Self) -> Self::Output {
-        Self::meters(self.as_meters() * rhs.as_meters())
+        Self(self.0 * rhs.0)
     }
 }
 
 impl Div for Distance {
     type Output = Self;
     fn div(self, rhs: Self) -> Self::Output {
-        Self::meters(self.as_meters() / rhs.as_meters())
+        Self(self.0 / rhs.0)
     }
 }
 
 impl Distance {
-    pub const fn meters(distance: f64) -> Self {
-        Self::Meter(distance)
+    pub const fn from_meters(distance: f64) -> Self {
+        Self(distance)
     }
 
-    pub const fn kilometers(distance: f64) -> Self {
-        Self::Kilometers(distance)
+    pub const fn from_kilometers(distance: f64) -> Self {
+        Self(distance * 1000.0)
     }
 
     pub const fn as_meters(&self) -> f64 {
-        match self {
-            Distance::Meter(value) => *value,
-            Distance::Kilometers(value) => *value * 1000.0,
-        }
+        self.0
     }
 
     pub const fn as_kilometers(&self) -> f64 {
-        match self {
-            Distance::Meter(value) => *value * 0.001,
-            Distance::Kilometers(value) => *value,
-        }
+        self.0 / 1000.0
     }
 }
 
@@ -134,12 +120,12 @@ impl Coordinate {
                 * f64::sin(dist_lon / 2.0)
                 * f64::sin(dist_lon / 2.0);
         let c = 2.0 * f64::atan2(f64::sqrt(a), f64::sqrt(1.0 - a));
-        Distance::kilometers(R * c)
+        Distance::from_kilometers(R * c)
     }
 
     pub fn network_distance(&self, coord: &Self) -> Distance {
         const CIRCUITY_FACTOR: f64 = 1.3;
-        Distance::kilometers(self.euclidean_distance(coord).as_kilometers() * CIRCUITY_FACTOR)
+        Distance::from_meters(self.euclidean_distance(coord).as_meters() * CIRCUITY_FACTOR)
     }
 
     pub fn to_grid(&self) -> (i32, i32) {
@@ -149,4 +135,33 @@ impl Coordinate {
             as i32;
         (x, y)
     }
+}
+
+#[test]
+fn distance_test() {
+    let coord_a = Coordinate {
+        latitude: 48.85800943005911,
+        longitude: 2.3514350059357927,
+    };
+
+    let coord_b = Coordinate {
+        latitude: 51.5052389927712,
+        longitude: -0.12495407345099824,
+    };
+    let d = coord_a.euclidean_distance(&coord_b);
+    assert!((d.as_kilometers() - 343_000.0).abs() > 500.0);
+}
+
+#[test]
+fn distance_eq_test() {
+    let dist_a = Distance::from_meters(1000.0);
+    let dist_b = Distance::from_kilometers(1.0);
+    assert_eq!(dist_a, dist_b)
+}
+
+#[test]
+fn distance_cmp_test() {
+    let dist_a = Distance::from_meters(1000.0);
+    let dist_b = Distance::from_kilometers(0.5);
+    assert!(dist_a > dist_b)
 }

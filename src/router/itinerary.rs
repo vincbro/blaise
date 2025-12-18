@@ -2,10 +2,10 @@ use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
 
-use crate::engine::{
-    Engine,
-    geo::Distance,
-    routing::graph::{Location, SearchStateRef, Transition},
+use crate::{
+    repository::Repository,
+    router::graph::{Location, SearchStateRef, Transition},
+    shared::{geo::Distance, time::Time},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,7 +48,7 @@ impl Itinerary {
         from: Location,
         to: Location,
         states: &[SearchStateRef],
-        engine: &Engine,
+        repo: &Repository,
     ) -> Option<Self> {
         let mut legs = vec![];
         let mut chunk = vec![&states[0]];
@@ -58,7 +58,7 @@ impl Itinerary {
 
             if !prev.transition.is_same_leg(&curr.transition) {
                 // Process chunk
-                legs.push(Leg::process_chunk(&chunk, engine));
+                legs.push(Leg::process_chunk(&chunk, repo));
                 chunk = vec![prev, curr];
             } else {
                 chunk.push(curr);
@@ -66,7 +66,7 @@ impl Itinerary {
         }
 
         if !chunk.is_empty() {
-            legs.push(Leg::process_chunk(&chunk, engine));
+            legs.push(Leg::process_chunk(&chunk, repo));
         }
 
         Some(Self { from, to, legs })
@@ -82,23 +82,23 @@ pub struct Leg {
 }
 
 impl Leg {
-    fn get_location_from_state(state: &SearchStateRef, engine: &Engine) -> Location {
+    fn get_location_from_state(state: &SearchStateRef, repo: &Repository) -> Location {
         if let Some(stop_idx) = state.stop_idx {
-            let stop = &engine.stops[stop_idx];
+            let stop = &repo.stops[stop_idx as usize];
             Location::Stop(stop.id.clone())
         } else {
             Location::Coordinate(state.coordinate)
         }
     }
 
-    pub fn process_chunk(chunk: &[&SearchStateRef], engine: &Engine) -> Self {
-        let from = Self::get_location_from_state(chunk[0], engine);
-        let to = Self::get_location_from_state(chunk[chunk.len() - 1], engine);
+    pub fn process_chunk(chunk: &[&SearchStateRef], repo: &Repository) -> Self {
+        let from = Self::get_location_from_state(chunk[0], repo);
+        let to = Self::get_location_from_state(chunk[chunk.len() - 1], repo);
 
         let instructions: Vec<Instruction> = chunk
             .iter()
             .map(|state| Instruction {
-                location: Self::get_location_from_state(state, engine),
+                location: Self::get_location_from_state(state, repo),
                 distance: state.g_distance,
                 arrival_time: state.current_time,
             })
@@ -118,5 +118,5 @@ impl Leg {
 pub struct Instruction {
     pub location: Location,
     pub distance: Distance,
-    pub arrival_time: usize,
+    pub arrival_time: Time,
 }

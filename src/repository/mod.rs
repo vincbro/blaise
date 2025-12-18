@@ -1,42 +1,18 @@
 use std::{collections::HashMap, sync::Arc};
 
-// Util
-pub mod fuzzy;
-pub mod geo;
-pub mod routing;
-pub mod search;
-
-// Models
-mod area;
-mod stop;
-mod stop_time;
-mod transfer;
-mod trip;
-pub use area::*;
-pub use stop::*;
-pub use stop_time::*;
-pub use transfer::*;
-pub use trip::*;
+mod models;
+pub use models::*;
 
 use crate::{
-    engine::{
-        geo::{Coordinate, Distance},
-        routing::{Router, graph::Location},
+    gtfs,
+    shared::{
+        self,
+        geo::{AVERAGE_STOP_DISTANCE, Coordinate, Distance},
+        time::Duration,
     },
-    gtfs::{self, Gtfs},
 };
 
 // Global Urban Standard
-pub(crate) const AVERAGE_STOP_DISTANCE: Distance = Distance::meters(500.0);
-pub(crate) const LONGITUDE_DISTANCE: Distance = Distance::meters(111_320.0);
-pub(crate) const LATITUDE_DISTANCE: Distance = Distance::meters(110_540.0);
-
-pub trait Identifiable {
-    fn id(&self) -> &str;
-    fn name(&self) -> &str;
-    fn normalized_name(&self) -> &str;
-}
-
 type IdToIndex = HashMap<Arc<str>, usize>;
 type IdToIndexes = HashMap<Arc<str>, Arc<[usize]>>;
 type IdToId = HashMap<Arc<str>, Arc<str>>;
@@ -44,12 +20,12 @@ type IdToIds = HashMap<Arc<str>, Arc<[Arc<str>]>>;
 type CellToIds = HashMap<(i32, i32), Arc<[Arc<str>]>>;
 
 #[derive(Debug, Clone, Default)]
-pub struct Engine {
-    pub stops: Arc<[Stop]>,
-    pub areas: Arc<[Area]>,
-    pub trips: Arc<[Trip]>,
-    pub stop_times: Arc<[StopTime]>,
-    pub transfers: Arc<[Transfer]>,
+pub struct Repository {
+    pub(crate) stops: Arc<[Stop]>,
+    pub(crate) areas: Arc<[Area]>,
+    pub(crate) trips: Arc<[Trip]>,
+    pub(crate) stop_times: Arc<[StopTime]>,
+    pub(crate) transfers: Arc<[Transfer]>,
 
     // Lookup tables
     stop_lookup: Arc<IdToIndex>,
@@ -63,21 +39,21 @@ pub struct Engine {
     trip_to_stop_times: Arc<IdToIndexes>,
 }
 
-impl Engine {
+impl Repository {
     pub fn new() -> Self {
         Default::default()
     }
 
     /// Used to stream data gtfs data into the engine
     /// Depending on the size of the data this can be a long blocking function
-    pub fn with_gtfs(mut self, mut gtfs: Gtfs) -> Result<Self, gtfs::Error> {
+    pub fn with_gtfs(mut self, mut gtfs: gtfs::Gtfs) -> Result<Self, gtfs::Error> {
         // Build stop data set
         print!("Loading stops...");
         let mut stop_lookup: IdToIndex = HashMap::new();
         let mut stops: Vec<Stop> = Vec::new();
         gtfs.stream_stops(|(i, stop)| {
             let mut value: Stop = stop.into();
-            value.index = i;
+            value.index = i as u32;
             stop_lookup.insert(value.id.clone(), i);
             stops.push(value);
         })?;
@@ -91,7 +67,7 @@ impl Engine {
         let mut areas: Vec<Area> = Vec::new();
         gtfs.stream_areas(|(i, area)| {
             let mut value: Area = area.into();
-            value.index = i;
+            value.index = i as u32;
             area_lookup.insert(value.id.clone(), i);
             areas.push(value);
         })?;
@@ -132,7 +108,7 @@ impl Engine {
         let mut trips: Vec<Trip> = Vec::new();
         gtfs.stream_trips(|(i, trip)| {
             let mut value: Trip = trip.into();
-            value.index = i;
+            value.index = i as u32;
             trip_lookup.insert(value.id.clone(), i);
             trips.push(value);
         })?;
@@ -157,7 +133,7 @@ impl Engine {
             let (from_trip_id, from_trip_idx) = if let Some(trip_id) = transfer.from_trip_id {
                 let trip_idx = *self.trip_lookup.get(trip_id.as_str()).unwrap();
                 let trip_id = self.trips[trip_idx].id.clone();
-                (Some(trip_id), Some(trip_idx))
+                (Some(trip_id), Some(trip_idx as u32))
             } else {
                 (None, None)
             };
@@ -165,7 +141,7 @@ impl Engine {
             let (to_trip_id, to_trip_idx) = if let Some(trip_id) = transfer.to_trip_id {
                 let trip_idx = *self.trip_lookup.get(trip_id.as_str()).unwrap();
                 let trip_id = self.trips[trip_idx].id.clone();
-                (Some(trip_id), Some(trip_idx))
+                (Some(trip_id), Some(trip_idx as u32))
             } else {
                 (None, None)
             };
@@ -177,14 +153,14 @@ impl Engine {
 
             let value = Transfer {
                 from_stop_id: from_stop.id.clone(),
-                from_stop_idx,
+                from_stop_idx: from_stop_idx as u32,
                 to_stop_id: to_stop.id.clone(),
-                to_stop_idx,
+                to_stop_idx: to_stop_idx as u32,
                 from_trip_id,
                 from_trip_idx,
                 to_trip_id,
                 to_trip_idx,
-                min_transfer_time: transfer.min_transfer_time,
+                min_transfer_time: transfer.min_transfer_time.map(Duration::from_seconds),
             };
 
             transfers.push(value);
@@ -213,9 +189,9 @@ impl Engine {
 
             let mut value: StopTime = stop_time.into();
             value.trip_id = trip.id.clone();
-            value.trip_idx = *trip_index;
+            value.trip_idx = *trip_index as u32;
             value.stop_id = stop.id.clone();
-            value.stop_idx = *stop_index;
+            value.stop_idx = *stop_index as u32;
             stop_times.push(value);
 
             trip_to_stop_times
@@ -360,7 +336,7 @@ impl Engine {
                 if let Some(stop_ids) = self.stop_distance_lookup.get(&cell) {
                     stop_ids.iter().for_each(|stop_id| {
                         if let Some(stop) = self.stop_by_id(stop_id)
-                            && stop.coordinate.euclidean_distance(coordinate) <= distance
+                            && stop.coordinate.network_distance(coordinate) <= distance
                         {
                             stops.push(stop);
                         }
@@ -373,15 +349,15 @@ impl Engine {
 
     /// Does a fuzzy search on all the areas, comparing there name to the needle.
     pub fn search_areas_by_name<'a>(&'a self, needle: &'a str) -> Vec<&'a Area> {
-        search::search(needle, &self.areas)
+        shared::search(needle, &self.areas)
     }
 
     /// Does a fuzzy search on all the stops, comparing there name to the needle.
     pub fn search_stops_by_name<'a>(&'a self, needle: &'a str) -> Vec<&'a Stop> {
-        search::search(needle, &self.stops)
+        shared::search(needle, &self.stops)
     }
 
-    pub fn router(&self, from: Location, to: Location) -> Result<Router, routing::Error> {
-        Router::new(self.clone(), from, to)
-    }
+    // pub fn router(&self, from: Location, to: Location) -> Result<Router, routing::Error> {
+    //     Router::new(self.clone(), from, to)
+    // }
 }
