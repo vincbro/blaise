@@ -2,6 +2,7 @@ use crate::state::AppState;
 use axum::routing::get;
 use std::sync::Arc;
 mod api;
+mod dto;
 mod state;
 
 #[tokio::main]

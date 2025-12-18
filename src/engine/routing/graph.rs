@@ -94,7 +94,7 @@ pub struct SearchState {
 
 impl SearchState {
     pub fn from_coordinate(from: &SearchStateRef, to: &Stop, end: &SearchStateRef) -> Self {
-        let distance = from.coordinate.distance(&to.coordinate);
+        let distance = from.coordinate.euclidean_distance(&to.coordinate);
         let time_to_walk = time_to_walk(&distance);
 
         let penalty = if from.transition.switch_cost(&Transition::Walk) {
@@ -108,7 +108,7 @@ impl SearchState {
             current_time: from.current_time + time_to_walk,
             g_distance: from.g_distance + distance,
             g_time: from.g_time + time_to_walk,
-            h_distance: to.coordinate.distance(&end.coordinate),
+            h_distance: to.coordinate.euclidean_distance(&end.coordinate),
             penalties: from.penalties + penalty,
             transition: Transition::Walk,
             parent: Some(from.clone()),
@@ -121,7 +121,7 @@ impl SearchState {
         transfer: &Transfer,
         end: &SearchStateRef,
     ) -> Self {
-        let distance = from.coordinate.distance(&to.coordinate);
+        let distance = from.coordinate.euclidean_distance(&to.coordinate);
         let time_to_transfer = transfer.min_transfer_time.unwrap_or(0) + time_to_walk(&distance);
 
         let transition = Transition::Transfer {
@@ -142,7 +142,7 @@ impl SearchState {
             current_time: from.current_time + time_to_transfer,
             g_distance: from.g_distance + distance,
             g_time: from.g_time + time_to_transfer,
-            h_distance: to.coordinate.distance(&end.coordinate),
+            h_distance: to.coordinate.euclidean_distance(&end.coordinate),
             penalties: from.penalties + penalty,
             transition,
             parent: Some(from.clone()),
@@ -174,7 +174,7 @@ impl SearchState {
 
         let dist_delta = match (new_stop_time.dist_traveled, last_stop_time.dist_traveled) {
             (Some(new_dist), Some(old_dist)) => new_dist - old_dist,
-            _ => from.coordinate.distance(&to.coordinate),
+            _ => from.coordinate.euclidean_distance(&to.coordinate),
         };
 
         let transition = Transition::Transit {
@@ -194,7 +194,7 @@ impl SearchState {
             current_time: arrival_time,
             g_distance: from.g_distance + dist_delta,
             g_time: from.g_time + (arrival_time - from.current_time),
-            h_distance: to.coordinate.distance(&end.coordinate),
+            h_distance: to.coordinate.euclidean_distance(&end.coordinate),
             penalties: from.penalties + penalty,
             transition,
             parent: Some(from.clone()),

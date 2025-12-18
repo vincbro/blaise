@@ -124,7 +124,7 @@ impl From<Coordinate> for (f64, f64) {
 }
 
 impl Coordinate {
-    pub fn distance(&self, coord: &Self) -> Distance {
+    pub fn euclidean_distance(&self, coord: &Self) -> Distance {
         const R: f64 = 6371.0;
         let dist_lat = f64::to_radians(coord.latitude - self.latitude);
         let dist_lon = f64::to_radians(coord.longitude - self.longitude);
@@ -135,6 +135,11 @@ impl Coordinate {
                 * f64::sin(dist_lon / 2.0);
         let c = 2.0 * f64::atan2(f64::sqrt(a), f64::sqrt(1.0 - a));
         Distance::kilometers(R * c)
+    }
+
+    pub fn network_distance(&self, coord: &Self) -> Distance {
+        const CIRCUITY_FACTOR: f64 = 1.3;
+        Distance::kilometers(self.euclidean_distance(coord).as_kilometers() * CIRCUITY_FACTOR)
     }
 
     pub fn to_grid(&self) -> (i32, i32) {

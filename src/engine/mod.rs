@@ -360,7 +360,7 @@ impl Engine {
                 if let Some(stop_ids) = self.stop_distance_lookup.get(&cell) {
                     stop_ids.iter().for_each(|stop_id| {
                         if let Some(stop) = self.stop_by_id(stop_id)
-                            && stop.coordinate.distance(coordinate) <= distance
+                            && stop.coordinate.euclidean_distance(coordinate) <= distance
                         {
                             stops.push(stop);
                         }

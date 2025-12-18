@@ -1,12 +1,14 @@
 use std::fmt::Display;
 
+use serde::{Deserialize, Serialize};
+
 use crate::engine::{
     Engine,
     geo::Distance,
     routing::graph::{Location, SearchStateRef, Transition},
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Mode {
     Walk,
     Travel, // Split out into diffrent types

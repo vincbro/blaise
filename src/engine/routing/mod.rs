@@ -6,8 +6,8 @@ pub mod itinerary;
 use thiserror::Error;
 
 use crate::engine::{
-    AVERAGE_STOP_DISTANCE, Area, Engine, StopTime,
-    geo::{Coordinate, Distance},
+    AVERAGE_STOP_DISTANCE, Engine, StopTime,
+    geo::Distance,
     parse_gtfs_time,
     routing::{
         graph::{Location, SearchState, SearchStateRef, Transition},
@@ -92,7 +92,7 @@ impl Router {
                 let coordinate = engine
                     .coordinate_by_area_id(id)
                     .ok_or(self::Error::InvalidAreaID)?;
-                let distance = coordinate.distance(&end.coordinate);
+                let distance = coordinate.euclidean_distance(&end.coordinate);
                 Ok(SearchState {
                     stop_idx: None,
                     coordinate,
@@ -107,7 +107,7 @@ impl Router {
             }
             Location::Stop(id) => {
                 let stop = engine.stop_by_id(id).ok_or(self::Error::InvalidStopID)?;
-                let distance = stop.coordinate.distance(&end.coordinate);
+                let distance = stop.coordinate.euclidean_distance(&end.coordinate);
                 Ok(SearchState {
                     stop_idx: None,
                     coordinate: stop.coordinate,
@@ -126,7 +126,7 @@ impl Router {
                 current_time: parse_gtfs_time("16:00:00").unwrap(),
                 g_distance: Default::default(),
                 g_time: 0,
-                h_distance: coordinate.distance(&end.coordinate),
+                h_distance: coordinate.euclidean_distance(&end.coordinate),
                 penalties: 0,
                 transition: Transition::Genesis,
                 parent: None,
@@ -156,7 +156,7 @@ impl Router {
         self.add_walk_neigbours(&self.start.clone());
 
         while let Some(state) = self.heap.pop() {
-            let distance_to_end = self.end.coordinate.distance(&state.coordinate);
+            let distance_to_end = self.end.coordinate.euclidean_distance(&state.coordinate);
             // This is true if we can walk to the end
             if distance_to_end <= self.walk_distance {
                 let mut route = vec![self.end];

@@ -1,21 +1,12 @@
 use std::{collections::HashMap, sync::Arc};
 
-use crate::state::AppState;
+use crate::{dto::AreaDto, state::AppState};
 use axum::{
     Json,
     extract::{Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use ontrack::engine::geo::Coordinate;
-use serde::{Deserialize, Serialize};
-
-#[derive(Serialize, Deserialize)]
-struct SearchResult {
-    pub id: String,
-    pub name: String,
-    pub coordinate: Coordinate,
-}
 
 pub async fn search(
     Query(params): Query<HashMap<String, String>>,
@@ -34,22 +25,7 @@ pub async fn search(
             .search_areas_by_name(query)
             .into_iter()
             .take(count)
-            .map(|area| {
-                let id = area.id.to_string();
-                let name = area.name.to_string();
-                let coordinate: Coordinate = state
-                    .engine
-                    .stops_by_area_id(&area.id)
-                    .unwrap()
-                    .into_iter()
-                    .map(|stop| stop.coordinate)
-                    .sum();
-                SearchResult {
-                    id,
-                    name,
-                    coordinate,
-                }
-            })
+            .map(|area| AreaDto::from(area, &state.engine))
             .collect();
         Ok(Json(result).into_response())
     } else {
