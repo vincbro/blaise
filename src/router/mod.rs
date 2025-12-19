@@ -12,7 +12,7 @@ use crate::{
         itinerary::Itinerary,
     },
     shared::{
-        geo::{AVERAGE_STOP_DISTANCE, Distance},
+        geo::{AVERAGE_STOP_DISTANCE, Coordinate, Distance},
         time::{Duration, Time},
     },
 };
@@ -29,14 +29,32 @@ pub enum Error {
     NoRouteFound,
 }
 
+pub struct SearchEnv<'a> {
+    repo: &'a Repository,
+    end: &'a SearchStateRef,
+    from: &'a Location,
+    to: &'a Location,
+    penalty_score: u32,
+    walk_distance: Distance,
+}
+
+pub struct SearchMut<'a> {
+    heap: &'a mut BinaryHeap<SearchStateRef>,
+    best_costs: &'a mut Vec<u32>,
+}
+
 pub struct Router {
+    // State
     repo: Repository,
     heap: BinaryHeap<SearchStateRef>,
-    best_cost: Vec<u32>,
+    best_costs: Vec<u32>,
+
+    // Conditions
     from: Location,
-    start: SearchStateRef,
     to: Location,
     end: SearchStateRef,
+
+    // Options
     walk_distance: Distance,
     penalty_score: u32,
 }
@@ -48,109 +66,58 @@ impl Router {
         to: Location,
         time: Time,
     ) -> Result<Self, self::Error> {
-        // Build end state
-        let end: SearchStateRef = match &to {
-            Location::Area(id) => {
-                let coordinate = repo
+        let resolve_coord = |loc: &Location| -> Result<Coordinate, self::Error> {
+            match loc {
+                Location::Area(id) => repo
                     .coordinate_by_area_id(id)
-                    .ok_or(self::Error::InvalidAreaID)?;
-                Ok(SearchState {
-                    stop_idx: None,
-                    coordinate,
-                    current_time: Default::default(),
-                    g_distance: Default::default(),
-                    g_time: Default::default(),
-                    h_distance: Default::default(),
-                    penalties: 0,
-                    transition: Transition::Genesis,
-                    parent: None,
-                })
+                    .ok_or(self::Error::InvalidAreaID),
+                Location::Stop(id) => repo
+                    .stop_by_id(id)
+                    .map(|stop| stop.coordinate)
+                    .ok_or(self::Error::InvalidStopID),
+                Location::Coordinate(c) => Ok(*c),
             }
-            Location::Stop(id) => {
-                let stop = repo.stop_by_id(id).ok_or(self::Error::InvalidStopID)?;
-                Ok(SearchState {
-                    stop_idx: None,
-                    coordinate: stop.coordinate,
-                    current_time: Default::default(),
-                    g_distance: Default::default(),
-                    g_time: Default::default(),
-                    h_distance: Default::default(),
-                    penalties: 0,
-                    transition: Transition::Genesis,
-                    parent: None,
-                })
-            }
-            Location::Coordinate(coordinate) => Ok(SearchState {
-                stop_idx: None,
-                coordinate: *coordinate,
-                current_time: Default::default(),
-                g_distance: Default::default(),
-                g_time: Default::default(),
-                h_distance: Default::default(),
-                penalties: 0,
-                transition: Transition::Genesis,
-                parent: None,
-            }),
-        }?
+        };
+
+        let end_coordinate = resolve_coord(&to)?;
+        let end: SearchStateRef = SearchState {
+            stop_idx: None,
+            coordinate: end_coordinate,
+            current_time: Default::default(),
+            g_distance: Default::default(),
+            g_time: Default::default(),
+            h_distance: Default::default(),
+            penalties: 0,
+            transition: Transition::Genesis,
+            parent: None,
+        }
         .into();
 
-        // Build start state
-        let start: SearchStateRef = match &from {
-            Location::Area(id) => {
-                let coordinate = repo
-                    .coordinate_by_area_id(id)
-                    .ok_or(self::Error::InvalidAreaID)?;
-                let distance = coordinate.network_distance(&end.coordinate);
-                Ok(SearchState {
-                    stop_idx: None,
-                    coordinate,
-                    current_time: time,
-                    g_distance: Default::default(),
-                    g_time: Default::default(),
-                    h_distance: distance,
-                    penalties: 0,
-                    transition: Transition::Genesis,
-                    parent: None,
-                })
-            }
-            Location::Stop(id) => {
-                let stop = repo.stop_by_id(id).ok_or(self::Error::InvalidStopID)?;
-                let distance = stop.coordinate.network_distance(&end.coordinate);
-                Ok(SearchState {
-                    stop_idx: None,
-                    coordinate: stop.coordinate,
-                    current_time: time,
-                    g_distance: Default::default(),
-                    g_time: Default::default(),
-                    h_distance: distance,
-                    penalties: 0,
-                    transition: Transition::Genesis,
-                    parent: None,
-                })
-            }
-            Location::Coordinate(coordinate) => Ok(SearchState {
-                stop_idx: None,
-                coordinate: *coordinate,
-                current_time: time,
-                g_distance: Default::default(),
-                g_time: Default::default(),
-                h_distance: coordinate.network_distance(&end.coordinate),
-                penalties: 0,
-                transition: Transition::Genesis,
-                parent: None,
-            }),
-        }?
+        let start_coordinate = resolve_coord(&from)?;
+        let start: SearchStateRef = SearchState {
+            stop_idx: None,
+            coordinate: start_coordinate,
+            current_time: time,
+            g_distance: Default::default(),
+            g_time: Default::default(),
+            h_distance: start_coordinate.network_distance(&end.coordinate),
+            penalties: 0,
+            transition: Transition::Genesis,
+            parent: None,
+        }
         .into();
+
+        let mut heap = BinaryHeap::new();
+        heap.push(start);
 
         Ok(Self {
-            best_cost: vec![u32::MAX; repo.stops.len()],
+            best_costs: vec![u32::MAX; repo.stops.len()],
             repo,
-            heap: Default::default(),
-            walk_distance: AVERAGE_STOP_DISTANCE,
+            heap,
             from,
-            start,
             to,
             end,
+            walk_distance: AVERAGE_STOP_DISTANCE,
             penalty_score: 512,
         })
     }
@@ -166,285 +133,195 @@ impl Router {
     }
 
     pub fn run(mut self) -> Result<Itinerary, self::Error> {
-        // Find all stops close to the start and set them as possible routes
-        self.add_walk_neigbours(&self.start.clone());
-
         while let Some(state) = self.heap.pop() {
-            let distance_to_end = self.end.coordinate.network_distance(&state.coordinate);
-            // This is true if we can walk to the end
-            if distance_to_end <= self.walk_distance {
-                let duration_to_end = time_to_walk(&distance_to_end);
-                let end: SearchStateRef = SearchState {
-                    stop_idx: self.end.stop_idx,
-                    coordinate: self.end.coordinate,
-                    current_time: state.current_time + duration_to_end,
-                    g_distance: state.g_distance + distance_to_end,
-                    g_time: state.g_time + duration_to_end,
-                    h_distance: state.h_distance + distance_to_end,
-                    penalties: state.penalties,
-                    transition: Transition::Walk,
-                    parent: Some(state.clone()),
-                }
-                .into();
-                let mut route = vec![];
-                let mut next = Some(end);
-                while let Some(state) = next {
-                    next = state.parent.clone();
-                    route.push(state);
-                }
-                route.reverse();
-                return Itinerary::new(self.from, self.to, &route, &self.repo)
-                    .ok_or(self::Error::FailedToBuildRoute);
-            }
-            self.add_neigbours(&state);
-            if state.transition != Transition::Walk {
-                self.add_walk_neigbours(&state);
+            let env = SearchEnv {
+                repo: &self.repo,
+                end: &self.end,
+                from: &self.from,
+                to: &self.to,
+                penalty_score: self.penalty_score,
+                walk_distance: self.walk_distance,
+            };
+            let mut ctx = SearchMut {
+                heap: &mut self.heap,
+                best_costs: &mut self.best_costs,
+            };
+            if self.end.coordinate.network_distance(&state.coordinate) <= self.walk_distance {
+                return Self::build_itinerary(&env, &state);
+            } else {
+                Self::add_neighbours(&env, &mut ctx, &state);
             }
         }
         Err(self::Error::NoRouteFound)
     }
 
-    fn add_walk_neigbours(&mut self, node: &SearchStateRef) {
-        self.repo
-            .stops_by_coordinate(&node.coordinate, self.walk_distance)
+    fn build_itinerary(
+        env: &SearchEnv,
+        from_node: &SearchStateRef,
+    ) -> Result<Itinerary, self::Error> {
+        let distance_to_end = env.end.coordinate.network_distance(&from_node.coordinate);
+        let duration_to_end = time_to_walk(&distance_to_end);
+        let end: SearchStateRef = SearchState {
+            stop_idx: env.end.stop_idx,
+            coordinate: env.end.coordinate,
+            current_time: from_node.current_time + duration_to_end,
+            g_distance: from_node.g_distance + distance_to_end,
+            g_time: from_node.g_time + duration_to_end,
+            h_distance: from_node.h_distance + distance_to_end,
+            penalties: from_node.penalties,
+            transition: Transition::Walk,
+            parent: Some(from_node.clone()),
+        }
+        .into();
+        let mut route = vec![];
+        let mut next = Some(end);
+        while let Some(state) = next {
+            next = state.parent.clone();
+            route.push(state);
+        }
+        route.reverse();
+        Itinerary::new(env.from.clone(), env.to.clone(), &route, env.repo)
+            .ok_or(self::Error::FailedToBuildRoute)
+    }
+
+    fn add_walk_neighbours(env: &SearchEnv, ctx: &mut SearchMut, from_node: &SearchStateRef) {
+        env.repo
+            .stops_by_coordinate(&from_node.coordinate, env.walk_distance)
             .into_iter()
-            .filter(|stop| self.repo.trips_by_stop_id(&stop.id).is_some())
+            .filter(|stop| env.repo.trips_by_stop_id(&stop.id).is_some())
             .for_each(|stop| {
-                let node = SearchState::from_coordinate(node, stop, &self.end, self.penalty_score);
+                let node =
+                    SearchState::from_coordinate(from_node, stop, env.end, env.penalty_score);
                 let cost = node.cost();
-                if cost < self.best_cost[stop.index as usize] {
-                    self.best_cost[stop.index as usize] = cost;
-                    self.heap.push(node.into());
+                if cost < ctx.best_costs[stop.index as usize] {
+                    ctx.best_costs[stop.index as usize] = cost;
+                    ctx.heap.push(node.into());
                 }
             });
     }
 
-    fn add_neigbours(&mut self, from_node: &SearchStateRef) {
+    fn add_neighbours(env: &SearchEnv, ctx: &mut SearchMut, from_node: &SearchStateRef) {
         match from_node.transition {
             Transition::Transit { trip_idx, sequence } => {
-                // If we are traveling we will continue down the path
-                let trip = &self.repo.trips[trip_idx as usize];
-                let stop_times = self.repo.stop_times_by_trip_id(&trip.id).unwrap();
-                let mut last_stop_time: Option<&StopTime> = None;
-                for stop_time in stop_times.iter() {
-                    if stop_time.sequence == sequence {
-                        last_stop_time = Some(stop_time);
-                        break;
-                    }
-                }
-
-                if let Some(last_stop_time) = last_stop_time {
-                    for new_stop_time in stop_times.iter() {
-                        if new_stop_time.sequence != sequence + 1 {
-                            continue;
-                        }
-                        let stop = &self.repo.stops[new_stop_time.stop_idx as usize];
-                        let to_node = SearchState::from_stop_time(
-                            from_node,
-                            stop,
-                            last_stop_time,
-                            new_stop_time,
-                            &self.end,
-                            self.penalty_score,
-                        );
-                        let cost = to_node.cost();
-                        // If it's worth to explore it
-                        if cost < self.best_cost[stop.index as usize] {
-                            self.best_cost[stop.index as usize] = cost;
-                            let node: SearchStateRef = to_node.into();
-                            self.heap.push(node.clone());
-
-                            // We also want to explore transfers
-                            if let Some(transfers) =
-                                self.repo.transfers_by_stop_id(&new_stop_time.stop_id)
-                            {
-                                transfers.iter().for_each(|transfer| {
-                                    let tran_stop = &self.repo.stops[transfer.to_stop_idx as usize];
-                                    let tran_node = SearchState::from_transfer(
-                                        &node,
-                                        tran_stop,
-                                        transfer,
-                                        &self.end,
-                                        self.penalty_score,
-                                    );
-                                    let cost = tran_node.cost();
-                                    if cost < self.best_cost[tran_stop.index as usize] {
-                                        self.best_cost[tran_stop.index as usize] = cost;
-                                        let t_node: SearchStateRef = tran_node.into();
-                                        self.heap.push(t_node);
-                                    }
-                                });
-                            }
-                        }
-                        break;
-                    }
-                }
+                Self::explore_trip(env, ctx, from_node, trip_idx, |st| st.sequence == sequence);
+                Self::add_walk_neighbours(env, ctx, from_node);
             }
-            Transition::Walk => {
-                // If the transition was a walk we need to hop on to a transfer
-                let stop = &self.repo.stops[from_node.stop_idx.unwrap() as usize];
-                self.repo
-                    .trips_by_stop_id(&stop.id)
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter_map(|trip| self.repo.stop_times_by_trip_id(&trip.id))
-                    .for_each(|stop_times| {
-                        let mut last_stop_time: Option<&StopTime> = None;
-                        for stop_time in stop_times.iter() {
-                            if stop_time.stop_idx == stop.index {
-                                last_stop_time = Some(stop_time);
-                            }
-                        }
-                        if let Some(last_stop_time) = last_stop_time {
-                            for stop_time in stop_times.iter() {
-                                if stop_time.sequence != last_stop_time.sequence + 1 {
-                                    continue;
-                                }
-                                // TEMP should never happend tho
-                                let stop = self.repo.stop_by_id(&stop_time.stop_id).unwrap();
-                                let node = SearchState::from_stop_time(
-                                    from_node,
-                                    stop,
-                                    last_stop_time,
-                                    stop_time,
-                                    &self.end,
-                                    self.penalty_score,
-                                );
 
-                                let cost = node.cost();
-                                if cost < self.best_cost[stop.index as usize] {
-                                    self.best_cost[stop.index as usize] = cost;
-                                    let node: SearchStateRef = node.into();
-                                    self.heap.push(node.clone());
-                                    // We also want to explore transfers
-                                    if let Some(transfers) =
-                                        self.repo.transfers_by_stop_id(&stop_time.stop_id)
-                                    {
-                                        transfers.iter().for_each(|transfer| {
-                                            let tran_stop =
-                                                &self.repo.stops[transfer.to_stop_idx as usize];
-                                            let tran_node = SearchState::from_transfer(
-                                                &node,
-                                                tran_stop,
-                                                transfer,
-                                                &self.end,
-                                                self.penalty_score,
-                                            );
-                                            let cost = tran_node.cost();
-                                            if cost < self.best_cost[tran_stop.index as usize] {
-                                                self.best_cost[tran_stop.index as usize] = cost;
-                                                let t_node: SearchStateRef = tran_node.into();
-                                                self.heap.push(t_node);
-                                            }
-                                        });
-                                    }
-                                }
-                                break;
-                            }
-                        }
-                    });
+            Transition::Walk => {
+                if let Some(stop_idx) = from_node.stop_idx {
+                    Self::explore_stop_trips(env, ctx, from_node, stop_idx);
+                }
             }
             Transition::Transfer {
                 to_stop_idx,
                 to_trip_idx,
                 ..
-            } => {
-                match to_trip_idx {
-                    Some(to_trip_idx) => {
-                        // println!("T_T");
-                        // Here we can just start by traveling down the trip
-                        let trip = &self.repo.trips[to_trip_idx as usize];
-                        let stop_times = self
-                            .repo
-                            .stop_times_by_trip_id(&trip.id)
-                            .unwrap_or_default();
-                        let mut last_stop_time: Option<&StopTime> = None;
-                        // Find the current sequence id
-                        for stop_time in stop_times.iter() {
-                            if stop_time.stop_idx == to_stop_idx {
-                                last_stop_time = Some(stop_time);
-                                break;
-                            }
-                        }
+            } => match to_trip_idx {
+                Some(trip_idx) => {
+                    Self::explore_trip(env, ctx, from_node, trip_idx, |st| {
+                        st.stop_idx == to_stop_idx
+                    });
+                    Self::add_walk_neighbours(env, ctx, from_node);
+                }
 
-                        if let Some(last_stop_time) = last_stop_time {
-                            for stop_time in stop_times.iter() {
-                                if stop_time.sequence != last_stop_time.sequence + 1 {
-                                    continue;
-                                }
-                                let stop = &self.repo.stops[stop_time.stop_idx as usize];
-                                let node = SearchState::from_stop_time(
-                                    from_node,
-                                    stop,
-                                    last_stop_time,
-                                    stop_time,
-                                    &self.end,
-                                    self.penalty_score,
-                                );
-                                let cost = node.cost();
-                                // If it's worth to explore it
-                                if cost < self.best_cost[stop.index as usize] {
-                                    self.best_cost[stop.index as usize] = cost;
-                                    let node: SearchStateRef = node.into();
-                                    self.heap.push(node.clone());
-                                }
-                                break;
-                            }
-                        }
-                    }
+                None => {
+                    Self::explore_stop_trips(env, ctx, from_node, to_stop_idx);
+                    Self::add_walk_neighbours(env, ctx, from_node);
+                }
+            },
+            Transition::Genesis => Self::add_walk_neighbours(env, ctx, from_node),
+        }
+    }
 
-                    None => {
-                        // println!("T_S");
-                        let stop = &self.repo.stops[to_stop_idx as usize];
-                        self.repo
-                            .trips_by_stop_id(&stop.id)
-                            .unwrap_or_default()
-                            .into_iter()
-                            .filter_map(|trip| self.repo.stop_times_by_trip_id(&trip.id))
-                            .for_each(|stop_times| {
-                                let mut last_stop_time: Option<&StopTime> = None;
-                                // Find the current sequence id
-                                for stop_time in stop_times.iter() {
-                                    if stop_time.stop_idx != to_stop_idx {
-                                        last_stop_time = Some(stop_time);
-                                        break;
-                                    }
-                                }
-
-                                if let Some(last_stop_time) = last_stop_time {
-                                    for stop_time in stop_times.iter() {
-                                        if stop_time.sequence != last_stop_time.sequence + 1 {
-                                            continue;
-                                        }
-                                        let stop = &self.repo.stops[stop_time.stop_idx as usize];
-                                        let node = SearchState::from_stop_time(
-                                            from_node,
-                                            stop,
-                                            last_stop_time,
-                                            stop_time,
-                                            &self.end,
-                                            self.penalty_score,
-                                        );
-                                        let cost = node.cost();
-                                        // If it's worth to explore it and that we can explore
-                                        if cost < self.best_cost[stop.index as usize] {
-                                            self.best_cost[stop.index as usize] = cost;
-                                            let node: SearchStateRef = node.into();
-                                            self.heap.push(node.clone());
-                                        }
-                                        break;
-                                    }
-                                }
-                            });
-                    }
-                };
+    fn explore_stop_trips(
+        env: &SearchEnv,
+        ctx: &mut SearchMut,
+        from_node: &SearchStateRef,
+        stop_idx: u32,
+    ) {
+        let stop = &env.repo.stops[stop_idx as usize];
+        if let Some(trips) = env.repo.trips_by_stop_id(&stop.id) {
+            for trip in trips {
+                Self::explore_trip(env, ctx, from_node, trip.index, |st| {
+                    st.stop_idx == stop_idx
+                });
             }
-            Transition::Genesis => todo!(),
+        }
+    }
+
+    fn explore_trip(
+        env: &SearchEnv,
+        ctx: &mut SearchMut,
+        from_node: &SearchStateRef,
+        trip_idx: u32,
+        find_current: impl Fn(&StopTime) -> bool,
+    ) {
+        let trip = env.repo.trips[trip_idx as usize].clone();
+        let stop_times = env.repo.stop_times_by_trip_id(&trip.id).unwrap();
+
+        if let Some(last_stop_time) = stop_times.iter().find(|st| find_current(st))
+            && let Some(next_stop_time) = stop_times
+                .iter()
+                .find(|st| st.sequence == last_stop_time.sequence + 1)
+        {
+            Self::process_segment(env, ctx, from_node, last_stop_time, next_stop_time);
+        }
+    }
+
+    fn process_segment(
+        env: &SearchEnv,
+        ctx: &mut SearchMut,
+        from_node: &SearchStateRef,
+        last_stop_time: &StopTime,
+        new_stop_time: &StopTime,
+    ) {
+        let stop = &env.repo.stops[new_stop_time.stop_idx as usize];
+        let to_node = SearchState::from_stop_time(
+            from_node,
+            stop,
+            last_stop_time,
+            new_stop_time,
+            env.end,
+            env.penalty_score,
+        );
+
+        let cost = to_node.cost();
+        if cost < ctx.best_costs[stop.index as usize] {
+            ctx.best_costs[stop.index as usize] = cost;
+            let node: SearchStateRef = to_node.into();
+            ctx.heap.push(node.clone());
+            Self::explore_transfers(env, ctx, &node, &new_stop_time.stop_id);
+        }
+    }
+
+    fn explore_transfers(
+        env: &SearchEnv,
+        ctx: &mut SearchMut,
+        from_node: &SearchStateRef,
+        stop_id: &str,
+    ) {
+        if let Some(transfers) = env.repo.transfers_by_stop_id(stop_id) {
+            for transfer in transfers {
+                let tran_stop = &env.repo.stops[transfer.to_stop_idx as usize];
+                let tran_node = SearchState::from_transfer(
+                    from_node,
+                    tran_stop,
+                    transfer,
+                    env.end,
+                    env.penalty_score,
+                );
+
+                let cost = tran_node.cost();
+                if cost < ctx.best_costs[tran_stop.index as usize] {
+                    ctx.best_costs[tran_stop.index as usize] = cost;
+                    ctx.heap.push(tran_node.into());
+                }
+            }
         }
     }
 }
 
-pub const fn time_to_walk(distance: &Distance) -> Duration {
+pub(crate) const fn time_to_walk(distance: &Distance) -> Duration {
     // m/s
     const AVERAGE_WALK_SPEED: f32 = 1.5;
     Duration::from_seconds((distance.as_meters() / AVERAGE_WALK_SPEED).ceil() as u32)

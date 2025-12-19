@@ -1,5 +1,9 @@
 ![ontrack](./assets/ontrack_slim.png)
 
+[![Crates.io](https://img.shields.io/crates/v/ontrack.svg)](https://crates.io/crates/ontrack)
+[![Documentation](https://docs.rs/ontrack/badge.svg)](https://docs.rs/ontrack)
+[![License](https://img.shields.io/crates/l/ontrack.svg)](LICENSE)
+
 On Track is a high-performance Rust library designed to make transit data easy to work with.
 It handles the heavy lifting of loading, searching, and routing through complex GTFS transit schedules so you can focus on building your application.
 
