@@ -9,7 +9,11 @@ use ontrack::{
     router::{Router, graph::Location},
     shared::{geo::Coordinate, time::Time},
 };
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    str::{self, FromStr},
+    sync::Arc,
+};
 
 use crate::{dto::ItineraryDto, state::AppState};
 
@@ -41,22 +45,8 @@ pub async fn routing(
 
 fn location_from_str(repo: &Repository, str: &str) -> Result<Location, StatusCode> {
     if str.contains(',') {
-        let split: Vec<_> = str.split(',').collect();
-        let latitude: f32 = split
-            .first()
-            .ok_or(StatusCode::BAD_REQUEST)?
-            .parse()
-            .map_err(|_| StatusCode::BAD_REQUEST)?;
-        let longitude: f32 = split
-            .last()
-            .ok_or(StatusCode::BAD_REQUEST)?
-            .parse()
-            .map_err(|_| StatusCode::BAD_REQUEST)?;
-        Ok(Coordinate {
-            latitude,
-            longitude,
-        }
-        .into())
+        let coordinate = Coordinate::from_str(str).map_err(|_| StatusCode::BAD_REQUEST)?;
+        Ok(coordinate.into())
     } else {
         Ok(repo.area_by_id(str).ok_or(StatusCode::BAD_REQUEST)?.into())
     }

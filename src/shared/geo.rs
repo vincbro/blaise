@@ -3,9 +3,11 @@ use std::{
     fmt::Display,
     iter::Sum,
     ops::{Add, Div, Mul, Sub},
+    str::FromStr,
 };
 
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 pub(crate) const AVERAGE_STOP_DISTANCE: Distance = Distance::from_meters(500.0);
 pub(crate) const LONGITUDE_DISTANCE: Distance = Distance::from_meters(111_320.0);
@@ -79,12 +81,6 @@ pub struct Coordinate {
     pub longitude: f32,
 }
 
-impl Display for Coordinate {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("{}, {}", self.latitude, self.longitude))
-    }
-}
-
 impl Sum for Coordinate {
     fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
         let mut count: usize = 0;
@@ -106,6 +102,48 @@ impl Sum for Coordinate {
 impl From<Coordinate> for (f32, f32) {
     fn from(value: Coordinate) -> Self {
         (value.latitude, value.longitude)
+    }
+}
+
+impl Display for Coordinate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("{}, {}", self.latitude, self.longitude))
+    }
+}
+
+#[derive(Error, Debug)]
+pub enum ParseCoordinateError {
+    #[error("Invalid latitude")]
+    InvalidLatitude,
+    #[error("Invalid longitude")]
+    InvalidLongitude,
+    #[error("Invalid format")]
+    InvalidFormat,
+}
+
+impl FromStr for Coordinate {
+    type Err = ParseCoordinateError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if !s.contains(',') {
+            return Err(ParseCoordinateError::InvalidFormat);
+        }
+        let s: String = s.split_whitespace().collect();
+        let split: Vec<_> = s.split(',').collect();
+        let latitude: f32 = split
+            .first()
+            .ok_or(ParseCoordinateError::InvalidLatitude)?
+            .parse()
+            .map_err(|_| ParseCoordinateError::InvalidLatitude)?;
+        let longitude: f32 = split
+            .last()
+            .ok_or(ParseCoordinateError::InvalidLongitude)?
+            .parse()
+            .map_err(|_| ParseCoordinateError::InvalidLongitude)?;
+        Ok(Coordinate {
+            latitude,
+            longitude,
+        })
     }
 }
 

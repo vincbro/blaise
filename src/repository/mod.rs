@@ -347,6 +347,19 @@ impl Repository {
         stops
     }
 
+    /// Returns areas near there within the coordinates.
+    pub fn areas_by_coordinate(&self, coordinate: &Coordinate, distance: Distance) -> Vec<&Area> {
+        let stops = self.stops_by_coordinate(coordinate, distance);
+        let mut areas: HashMap<&str, &Area> = HashMap::with_capacity(stops.len());
+        stops
+            .into_iter()
+            .filter_map(|stop| self.area_by_stop_id(&stop.id))
+            .for_each(|area| {
+                areas.insert(&area.id, area);
+            });
+        areas.into_values().collect()
+    }
+
     /// Does a fuzzy search on all the areas, comparing there name to the needle.
     pub fn search_areas_by_name<'a>(&'a self, needle: &'a str) -> Vec<&'a Area> {
         shared::search(needle, &self.areas)

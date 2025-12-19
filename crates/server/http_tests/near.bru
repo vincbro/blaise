@@ -1,0 +1,21 @@
+meta {
+  name: near
+  type: http
+  seq: 3
+}
+
+get {
+  url: http://localhost:3000/near?q=59.583620270018756,17.893913022498964&distance=5000
+  body: none
+  auth: inherit
+}
+
+params:query {
+  q: 59.583620270018756,17.893913022498964
+  distance: 5000
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}
