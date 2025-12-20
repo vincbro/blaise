@@ -1,5 +1,5 @@
 [package]
-version = "0.0.5"
+version = "0.0.6"
 name = "ontrack"
 description = "High-performance Rust library for routing, searching, and querying GTFS transit data with minimal runtime allocations."
 authors = ["Vincent Brodin <vincent.brodin21@gmail.com>"]

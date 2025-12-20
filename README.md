@@ -57,14 +57,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ## Roadmap
 
 - [ ] Production-ready web server crate with docker image
-- [ ] Multi-threaded routing for even faster results
+- [ ] Multi-threaded routing (Switching to RAPTOR)
 - [ ] Real-time data updates (GTFS-RT)
 - [ ] Advanced date and holiday filtering
 
 ## Refrences
 
 - [GTFS Specification](https://gtfs.org/documentation/schedule/reference/)
-- [Development Data (Sweden):](https://www.trafiklab.se/api/gtfs-datasets/gtfs-sweden/static-specification/)
+- [Development Data (Sweden)](https://www.trafiklab.se/api/gtfs-datasets/gtfs-sweden/static-specification/)
+- [RAPTOR](https://www.microsoft.com/en-us/research/wp-content/uploads/2012/01/raptor_alenex.pdf)
 
 ## License
 
