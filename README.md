@@ -5,18 +5,11 @@
 [![License](https://img.shields.io/crates/l/ontrack.svg)](LICENSE)
 
 On Track is a high-performance Rust library designed to make transit data easy to work with.
-It handles the heavy lifting of loading, searching, and routing through complex GTFS transit schedules so you can focus on building your application.
+It handles the heavy lifting of loading, searching, and routing through GTFS transit schedules so you can focus on building your application.
 
 > [!NOTE]
 > This project is early in development, if you like the idea and want to help improve it, please open an issue.
 
-## Key Features
-
-- **Zero-Config Ingestion**: Parses standard GTFS zip files out of the box, handling schema details automatically.
-- **Graph-Based Routing**: Delivers accurate pathfinding that respects transfer rules, dwell times, and physical access points.
-- **Self-Contained Search**: Features a built-in, multi-threaded fuzzy search algorithm, removing dependencies on external engines.
-- **Geospatial Lookup**: fast grid-based lookups associate user coordinates with the nearest stops and stations.
-- **Optimized Memory Layout**: A highly optimized Rust architecture ensures minimal RAM usage, ideal for containerized or edge environments.
 
 ## Installation
 
@@ -47,12 +40,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 } 
 ```
-
-## Core Concepts
-
-- **Repository**: Your central hub for transit data. It holds all the stops, routes, and schedules in a format optimized for speed.
-- **Router**: The logic engine that finds the best path. It understands how to connect different bus or train lines with walking paths.
-- **Shared Utilities**: Built-in tools for handling geographic distances and transit-specific time calculations.
 
 ## Roadmap
 
