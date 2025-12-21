@@ -12,11 +12,11 @@ It handles the heavy lifting of loading, searching, and routing through complex 
 
 ## Key Features
 
-- **Simplified Integration**: Stop worrying about GTFS parsing; just point the library at a .zip file and start querying.
-- **Reliable Routing**: Give your users accurate itineraries that account for every transfer and walking connection.
-- **Search that Just Works**: Implement high-quality location search without needing external search engines.
-- **Location Intelligence**: Easily connect coordinates to transit infrastructure to power "near me" features.
-- **Efficient Resource Use**: Deploy on smaller, more cost-effective servers thanks to a highly optimized, low-memory design.
+- **Zero-Config Ingestion**: Parses standard GTFS zip files out of the box, handling schema details automatically.
+- **Graph-Based Routing**: Delivers accurate pathfinding that respects transfer rules, dwell times, and physical access points.
+- **Self-Contained Search**: Features a built-in, multi-threaded fuzzy search algorithm, removing dependencies on external engines.
+- **Geospatial Lookup**: fast grid-based lookups associate user coordinates with the nearest stops and stations.
+- **Optimized Memory Layout**: A highly optimized Rust architecture ensures minimal RAM usage, ideal for containerized or edge environments.
 
 ## Installation
 
