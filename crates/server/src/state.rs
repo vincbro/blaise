@@ -1,11 +1,11 @@
-use ontrack::engine::Engine;
+use ontrack::repository::Repository;
 
 pub struct AppState {
-    pub engine: Engine,
+    pub repo: Repository,
 }
 
 impl AppState {
-    pub fn new(engine: Engine) -> Self {
-        Self { engine }
+    pub fn new(repo: Repository) -> Self {
+        Self { repo }
     }
 }

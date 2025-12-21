@@ -1,6 +1,6 @@
 use std::{cmp, mem::swap};
 
-pub fn distance(s1_in: &str, s2_in: &str) -> usize {
+pub(crate) fn distance(s1_in: &str, s2_in: &str) -> usize {
     if s1_in == s2_in {
         return 0;
     }
@@ -43,7 +43,7 @@ pub fn distance(s1_in: &str, s2_in: &str) -> usize {
     matrix[s1_len][s2_len]
 }
 
-pub fn score(needle: &str, hay: &str) -> f64 {
+pub(crate) fn score(needle: &str, hay: &str) -> f64 {
     let needle_tokens: Vec<_> = needle.split_whitespace().collect();
     let hay_tokens: Vec<_> = hay.split_whitespace().collect();
     let tokens = needle_tokens.len();
@@ -60,25 +60,6 @@ pub fn score(needle: &str, hay: &str) -> f64 {
     }
 }
 
-pub fn score_deep(needle: &str, hay: &str) -> f64 {
-    let needle_tokens: Vec<_> = needle.split_whitespace().collect();
-    let hay_tokens: Vec<_> = hay.split_whitespace().collect();
-    let tokens = needle_tokens.len();
-    let runs = cmp::min(needle_tokens.len(), hay_tokens.len());
-    let mut score: f64 = 0.0;
-    for i in 0..runs {
-        score += score_inner(needle_tokens[i], hay_tokens[i]);
-    }
-
-    score = if score == 0.0 {
-        0.0
-    } else {
-        score / tokens as f64
-    };
-    score += score_inner(needle, hay);
-    if score == 0.0 { 0.0 } else { score / 2.0 }
-}
-
 fn score_inner(s1: &str, s2: &str) -> f64 {
     let dist = distance(s1, s2);
     if dist == 0 {
@@ -86,4 +67,82 @@ fn score_inner(s1: &str, s2: &str) -> f64 {
     } else {
         1.0 - (distance(s1, s2) as f64 / cmp::max(s1.chars().count(), s2.chars().count()) as f64)
     }
+}
+
+#[test]
+fn fuzzy_empty_vs_empty() {
+    let dist = distance("", "");
+    assert_eq!(dist, 0);
+}
+
+#[test]
+fn fuzzy_empty_vs_nonempty() {
+    let dist = distance("", "abc");
+    assert_eq!(dist, 3);
+}
+
+#[test]
+fn fuzzy_nonempty_vs_empty() {
+    let dist = distance("abc", "");
+    assert_eq!(dist, 3);
+}
+
+#[test]
+fn fuzzy_completely_different() {
+    let dist = distance("kitten", "orange");
+    assert_eq!(dist, 6);
+}
+
+#[test]
+fn fuzzy_substitution() {
+    let dist = distance("cat", "cut");
+    assert_eq!(dist, 1);
+}
+
+#[test]
+fn fuzzy_insertion() {
+    let dist = distance("cat", "cart");
+    assert_eq!(dist, 1);
+}
+
+#[test]
+fn fuzzy_deletion() {
+    let dist = distance("cart", "cat");
+    assert_eq!(dist, 1);
+}
+
+#[test]
+fn fuzzy_unicode_equal() {
+    let dist = distance("café", "café");
+    assert_eq!(dist, 0);
+}
+
+#[test]
+fn fuzzy_unicode_distinct() {
+    let dist = distance("café", "cafe");
+    assert_eq!(dist, 1);
+}
+
+#[test]
+fn fuzzy_unicode_multi() {
+    let dist = distance("😀😁😂", "😀😂😁");
+    assert_eq!(dist, 2);
+}
+
+#[test]
+fn fuzzy_prefix_changes() {
+    let dist = distance("abcdef", "zbcdef");
+    assert_eq!(dist, 1);
+}
+
+#[test]
+fn fuzzy_suffix_changes() {
+    let dist = distance("abcdef", "abcdez");
+    assert_eq!(dist, 1);
+}
+
+#[test]
+fn fuzzy_longer_sequence() {
+    let dist = distance("intention", "execution");
+    assert_eq!(dist, 5);
 }

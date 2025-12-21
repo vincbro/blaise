@@ -1,4 +1,4 @@
-use ontrack::engine::{Stop, geo::Coordinate};
+use ontrack::{repository::Stop, shared::geo::Coordinate};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

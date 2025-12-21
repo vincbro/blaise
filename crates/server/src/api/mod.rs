@@ -1,5 +1,5 @@
 mod routing;
-pub use routing::routing;
+pub use routing::*;
 
 mod search;
-pub use search::search;
+pub use search::*;

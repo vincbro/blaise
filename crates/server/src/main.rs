@@ -1,5 +1,6 @@
 use crate::state::AppState;
 use axum::routing::get;
+use ontrack::{gtfs::Gtfs, repository::Repository};
 use std::sync::Arc;
 mod api;
 mod dto;
@@ -14,15 +15,15 @@ async fn main() {
     }
     let path = std::path::Path::new(&args[1]).canonicalize().unwrap();
 
-    let data = ontrack::gtfs::Gtfs::new(ontrack::gtfs::Config::default())
+    let data = Gtfs::new(ontrack::gtfs::Config::default())
         .from_zip(path)
         .unwrap();
-    let engine = ontrack::engine::Engine::new().with_gtfs(data).unwrap();
-
-    let state = Arc::new(AppState::new(engine));
+    let repo = Repository::new().with_gtfs(data).unwrap();
+    let state = Arc::new(AppState::new(repo));
 
     let app = axum::Router::new()
         .route("/search", get(api::search))
+        .route("/near", get(api::near))
         .route("/routing", get(api::routing))
         .with_state(state);
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
