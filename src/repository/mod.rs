@@ -2,6 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 mod models;
 pub use models::*;
+use rayon::prelude::*;
 
 use crate::{
     gtfs,
@@ -328,36 +329,41 @@ impl Repository {
     /// Returns stops near there within the coordinates.
     pub fn stops_by_coordinate(&self, coordinate: &Coordinate, distance: Distance) -> Vec<&Stop> {
         let reach = (distance / AVERAGE_STOP_DISTANCE).as_meters().ceil().abs() as i32;
-        let cell = coordinate.to_grid();
-        let mut stops: Vec<&Stop> = Vec::new();
-        for x in -reach..reach + 1 {
-            for y in -reach..reach + 1 {
-                let cell = (cell.0 + x, cell.1 + y);
-                if let Some(stop_ids) = self.stop_distance_lookup.get(&cell) {
-                    stop_ids.iter().for_each(|stop_id| {
-                        if let Some(stop) = self.stop_by_id(stop_id)
-                            && stop.coordinate.network_distance(coordinate) <= distance
-                        {
-                            stops.push(stop);
+        let (origin_x, origin_y) = coordinate.to_grid();
+        (-reach..=reach)
+            .into_par_iter()
+            .flat_map(|x| {
+                (-reach..=reach)
+                    .flat_map(move |y| {
+                        let cell = (origin_x + x, origin_y + y);
+                        if let Some(stop_ids) = self.stop_distance_lookup.get(&cell) {
+                            stop_ids
+                                .iter()
+                                .filter_map(|stop_id| {
+                                    self.stop_by_id(stop_id).filter(|stop| {
+                                        stop.coordinate.network_distance(coordinate) <= distance
+                                    })
+                                })
+                                .collect::<Vec<_>>()
+                        } else {
+                            Vec::new()
                         }
-                    });
-                }
-            }
-        }
-        stops
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect()
     }
 
     /// Returns areas near there within the coordinates.
     pub fn areas_by_coordinate(&self, coordinate: &Coordinate, distance: Distance) -> Vec<&Area> {
         let stops = self.stops_by_coordinate(coordinate, distance);
-        let mut areas: HashMap<&str, &Area> = HashMap::with_capacity(stops.len());
-        stops
-            .into_iter()
+        let mut areas: Vec<_> = stops
+            .into_par_iter()
             .filter_map(|stop| self.area_by_stop_id(&stop.id))
-            .for_each(|area| {
-                areas.insert(&area.id, area);
-            });
-        areas.into_values().collect()
+            .collect();
+        areas.par_sort_by_key(|area| area.index);
+        areas.dedup_by_key(|area| area.index);
+        areas
     }
 
     /// Does a fuzzy search on all the areas, comparing there name to the needle.
