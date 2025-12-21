@@ -1,5 +1,6 @@
-use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
+use std::cmp::Ordering;
 
+use rayon::prelude::*;
 pub(crate) mod fuzzy;
 pub mod geo;
 pub mod time;
@@ -16,24 +17,20 @@ where
     T: Send + Sync + Identifiable,
 {
     let normalized_needle = needle.to_lowercase();
-    let threads = rayon::current_num_threads();
-    let chunk_size = haystack.len().div_ceil(threads);
-    let mut results: Vec<Vec<(&T, f64)>> = Vec::with_capacity(threads);
-    for _ in 0..threads {
-        results.push(Vec::with_capacity(chunk_size));
-    }
-    results.par_iter_mut().enumerate().for_each(|(chunk, vec)| {
-        for i in 0..chunk_size {
-            let index = (chunk * chunk_size) + i;
-            if index > haystack.len() - 1 {
-                break;
-            }
-            let hay = &haystack[index];
+    let mut results: Vec<(&T, f64)> = haystack
+        .par_iter()
+        .filter_map(|hay| {
             let score = fuzzy::score(&normalized_needle, hay.normalized_name());
-            vec.push((hay, score));
-        }
+            if score > 0.1 {
+                Some((hay, score))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    results.par_sort_unstable_by(|(_, a): &(_, f64), (_, b): &(_, f64)| {
+        b.partial_cmp(a).unwrap_or(Ordering::Equal)
     });
-    let mut results: Vec<_> = results.into_iter().flatten().collect();
-    results.sort_by(|(_, score_a), (_, score_b)| score_b.total_cmp(score_a));
-    results.iter().map(|(entity, _)| *entity).collect()
+    results.into_iter().map(|(entity, _)| entity).collect()
 }
