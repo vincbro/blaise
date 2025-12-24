@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    repository::{Area, LocationType, Stop, StopAccessType, StopTime, Timepoint, Trip},
+    repository::{Area, LocationType, Route, Stop, StopAccessType, StopTime, Timepoint, Trip},
     shared::{
         geo::{Coordinate, Distance},
         time::Time,
@@ -85,6 +85,20 @@ pub struct GtfsRoute {
     pub route_desc: Option<String>,
 }
 
+impl From<GtfsRoute> for Route {
+    fn from(value: GtfsRoute) -> Self {
+        Self {
+            index: u32::MAX,
+            id: value.route_id.into(),
+            agency_id: value.agency_id.into(),
+            route_short_name: value.route_short_name.map(|val| val.into()),
+            route_long_name: value.route_long_name.map(|val| val.into()),
+            route_type: value.route_type,
+            route_desc: value.route_desc.map(|val| val.into()),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct GtfsAgency {
@@ -162,13 +176,14 @@ pub struct GtfsTrip {
     pub shape_id: Option<String>,
 }
 
-impl From<GtfsTrip> for Trip {
-    fn from(value: GtfsTrip) -> Self {
-        Self {
-            index: u32::MAX,
-            id: value.trip_id.into(),
-            headsign: value.trip_headsign.map(|val| val.into()),
-            short_name: value.trip_short_name.map(|val| val.into()),
-        }
-    }
-}
+// impl From<GtfsTrip> for Trip {
+//     fn from(value: GtfsTrip) -> Self {
+//         Self {
+//             index: u32::MAX,
+//             id: value.trip_id.into(),
+//             route_id:
+//             headsign: value.trip_headsign.map(|val| val.into()),
+//             short_name: value.trip_short_name.map(|val| val.into()),
+//         }
+//     }
+// }

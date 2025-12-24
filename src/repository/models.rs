@@ -119,6 +119,18 @@ pub struct Transfer {
 pub struct Trip {
     pub index: u32,
     pub id: Arc<str>,
+    pub route_id: Arc<str>,
     pub headsign: Option<Arc<str>>,
     pub short_name: Option<Arc<str>>,
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct Route {
+    pub index: u32,
+    pub id: Arc<str>,
+    pub agency_id: Arc<str>,
+    pub route_short_name: Option<Arc<str>>,
+    pub route_long_name: Option<Arc<str>>,
+    pub route_type: i32,
+    pub route_desc: Option<Arc<str>>,
 }

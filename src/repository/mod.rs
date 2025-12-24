@@ -24,6 +24,7 @@ type CellToIds = HashMap<(i32, i32), Arc<[Arc<str>]>>;
 pub struct Repository {
     pub(crate) stops: Arc<[Stop]>,
     pub(crate) areas: Arc<[Area]>,
+    pub(crate) routes: Arc<[Route]>,
     pub(crate) trips: Arc<[Trip]>,
     pub(crate) stop_times: Arc<[StopTime]>,
     pub(crate) transfers: Arc<[Transfer]>,
@@ -32,6 +33,9 @@ pub struct Repository {
     stop_lookup: Arc<IdToIndex>,
     stop_distance_lookup: Arc<CellToIds>,
     area_lookup: Arc<IdToIndex>,
+    route_lookup: Arc<IdToIndex>,
+    route_to_trips: Arc<IdToIds>,
+    trip_to_route: Arc<IdToId>,
     area_to_stops: Arc<IdToIds>,
     stop_to_area: Arc<IdToId>,
     stop_to_transfers: Arc<IdToIndexes>,
@@ -104,17 +108,51 @@ impl Repository {
         println!("OK");
 
         // Build trip data set
+        print!("Loading routes...");
+        let mut route_lookup: IdToIndex = HashMap::new();
+        let mut routes: Vec<Route> = Vec::new();
+        gtfs.stream_routes(|(i, route)| {
+            let mut value: Route = route.into();
+            value.index = i as u32;
+            route_lookup.insert(value.id.clone(), i);
+            routes.push(value);
+        })?;
+        self.routes = routes.into();
+        self.route_lookup = route_lookup.into();
+        println!("OK");
+
+        // Build trip data set
         print!("Loading trips...");
         let mut trip_lookup: IdToIndex = HashMap::new();
+        let mut route_to_trips: HashMap<Arc<str>, Vec<Arc<str>>> = HashMap::new();
+        let mut trip_to_route: IdToId = HashMap::new();
         let mut trips: Vec<Trip> = Vec::new();
         gtfs.stream_trips(|(i, trip)| {
-            let mut value: Trip = trip.into();
-            value.index = i as u32;
+            let route_index = self.route_lookup.get(trip.route_id.as_str()).unwrap();
+            let route_id = self.routes[*route_index].id.clone();
+            let value = Trip {
+                index: i as u32,
+                id: trip.trip_id.into(),
+                route_id: route_id.clone(),
+                headsign: trip.trip_headsign.map(|val| val.into()),
+                short_name: trip.trip_short_name.map(|val| val.into()),
+            };
+            route_to_trips
+                .entry(route_id.clone())
+                .or_default()
+                .push(route_id.clone());
+            trip_to_route.insert(value.id.clone(), route_id);
             trip_lookup.insert(value.id.clone(), i);
             trips.push(value);
         })?;
         self.trips = trips.into();
         self.trip_lookup = trip_lookup.into();
+        self.trip_to_route = trip_to_route.into();
+        let route_to_trips: IdToIds = route_to_trips
+            .into_iter()
+            .map(|(key, value)| (key, value.into()))
+            .collect();
+        self.route_to_trips = route_to_trips.into();
         println!("OK");
 
         // Loading in transfers
