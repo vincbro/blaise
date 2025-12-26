@@ -395,14 +395,14 @@ impl Repository {
             .route_to_trips
             .get(route_id)?
             .iter()
-            .filter_map(|trip_id| self.trip_by_id(&trip_id))
+            .filter_map(|trip_id| self.trip_by_id(trip_id))
             .collect();
         Some(trips)
     }
 
     pub fn stop_times_by_route_id(&self, route_id: &str) -> Option<Vec<&StopTime>> {
         let trips = self.trips_by_route_id(route_id)?;
-        let stop_times: Vec<&StopTime> = trips
+        let stop_times: Vec<_> = trips
             .into_par_iter()
             .filter_map(|trip| self.stop_times_by_trip_id(&trip.id))
             .flatten()

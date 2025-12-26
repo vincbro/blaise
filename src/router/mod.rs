@@ -3,7 +3,7 @@ use rayon::prelude::*;
 use thiserror::Error;
 
 use crate::{
-    repository::{Repository, Route, Stop},
+    repository::{Repository, Route, Stop, StopTime},
     router::graph::Location,
     shared::{
         geo::{Coordinate, Distance},
@@ -86,8 +86,11 @@ impl<'a> Router<'a> {
             self.marked[index as usize] = true;
         });
 
-        let mut round = 0;
+        // We always start at round 1 since the base round is 0
+        let mut round = 1;
         loop {
+            // Add a new round to the list
+            self.labels.push(vec![None; self.repository.stops.len()]);
             // FIX: We need a almost full rewrite, what we want to do is find
 
             // Collect all the routes we should explore based on the stops that got marked
@@ -120,8 +123,28 @@ impl<'a> Router<'a> {
                 .filter_map(|(r_idx, p_idx)| p_idx.map(|p_idx| (r_idx, p_idx)))
                 .for_each(|(route_idx, p_idx)| {
                     let route = &self.repository.routes[route_idx];
-                    // Logic for seeing if lable can be improved
-                    // We get the trips and do a quick stop lookup with start_index + p_idx + (0..len-p_idx)
+                    // TEMP
+                    let stop_times = self.repository.stop_times_by_route_id(&route.id).unwrap();
+                    let mut possible_starts: Vec<_> = stop_times
+                        .par_iter()
+                        .filter(|st| st.internal_idx == p_idx)
+                        .collect();
+                    possible_starts.par_sort_by_key(|st| st.departure_time);
+                    let mut start: Option<&StopTime> = None;
+                    for possible_start in possible_starts.into_iter() {
+                        let prev_arrival = self.labels[round - 1][possible_start.stop_idx as usize]
+                            .unwrap_or(0.into());
+                        if possible_start.departure_time >= prev_arrival {
+                            start = Some(possible_start);
+                            break;
+                        }
+                    }
+
+                    if let Some(start) = start {
+                        let trip = &self.repository.trips[start.trip_idx as usize];
+                        // TEMP
+                        let stop_times = self.repository.stop_times_by_trip_id(&trip.id).unwrap();
+                    }
                 });
         }
         println!("DONE");
