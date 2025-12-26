@@ -1,9 +1,6 @@
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 
-use crate::{
-    dto::{AreaDto, StopDto},
-    state::AppState,
-};
+use crate::{dto::AreaDto, state::AppState};
 use axum::{
     Json,
     extract::{Query, State},
@@ -25,11 +22,11 @@ pub async fn search(
             None => 5,
         };
         let result: Vec<_> = state
-            .repo
+            .repository
             .search_areas_by_name(query)
             .into_iter()
             .take(count)
-            .map(|area| AreaDto::from(area, &state.repo))
+            .map(|area| AreaDto::from(area, &state.repository))
             .collect();
         Ok(Json(result).into_response())
     } else {
@@ -51,10 +48,10 @@ pub async fn near(
         };
         let coordinate = Coordinate::from_str(query).map_err(|_| StatusCode::BAD_REQUEST)?;
         let mut result: Vec<_> = state
-            .repo
+            .repository
             .areas_by_coordinate(&coordinate, distance)
             .into_iter()
-            .map(|area| AreaDto::from(area, &state.repo))
+            .map(|area| AreaDto::from(area, &state.repository))
             .collect();
         result.sort_by(|a, b| {
             a.coordinate

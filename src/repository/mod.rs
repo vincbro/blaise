@@ -6,6 +6,7 @@ use rayon::prelude::*;
 
 use crate::{
     gtfs,
+    router::{Router, graph::Location},
     shared::{
         self,
         geo::{AVERAGE_STOP_DISTANCE, Coordinate, Distance},
@@ -22,12 +23,12 @@ type CellToIds = HashMap<(i32, i32), Arc<[Arc<str>]>>;
 
 #[derive(Debug, Clone, Default)]
 pub struct Repository {
-    pub(crate) stops: Arc<[Stop]>,
-    pub(crate) areas: Arc<[Area]>,
-    pub(crate) routes: Arc<[Route]>,
-    pub(crate) trips: Arc<[Trip]>,
-    pub(crate) stop_times: Arc<[StopTime]>,
-    pub(crate) transfers: Arc<[Transfer]>,
+    pub(crate) stops: Box<[Stop]>,
+    pub(crate) areas: Box<[Area]>,
+    pub(crate) routes: Box<[Route]>,
+    pub(crate) trips: Box<[Trip]>,
+    pub(crate) stop_times: Box<[StopTime]>,
+    pub(crate) transfers: Box<[Transfer]>,
 
     // Lookup tables
     stop_lookup: Arc<IdToIndex>,
@@ -217,10 +218,24 @@ impl Repository {
         let mut trip_to_stop_times: HashMap<Arc<str>, Vec<usize>> = HashMap::new();
         let mut stop_to_trips: HashMap<Arc<str>, Vec<Arc<str>>> = HashMap::new();
         let mut stop_times: Vec<StopTime> = Vec::new();
+        let mut last_trip_idx = usize::MAX;
+        let mut start_idx = 0;
+        let mut buffer: Vec<StopTime> = vec![];
         gtfs.stream_stop_times(|(i, stop_time)| {
             // TEMP
             let trip_index = self.trip_lookup.get(stop_time.trip_id.as_str()).unwrap();
             let trip = &self.trips[*trip_index];
+
+            if last_trip_idx != *trip_index {
+                buffer.par_sort_by_key(|val| val.sequence);
+                buffer.iter_mut().enumerate().for_each(|(j, st)| {
+                    st.internal_idx = j as u32;
+                    st.index = st.start_idx + st.internal_idx;
+                });
+                stop_times.append(&mut buffer);
+                last_trip_idx = *trip_index;
+                start_idx = i;
+            }
 
             // TEMP
             let stop_index = self.stop_lookup.get(stop_time.stop_id.as_str()).unwrap();
@@ -231,7 +246,8 @@ impl Repository {
             value.trip_idx = *trip_index as u32;
             value.stop_id = stop.id.clone();
             value.stop_idx = *stop_index as u32;
-            stop_times.push(value);
+            value.start_idx = start_idx as u32;
+            buffer.push(value);
 
             trip_to_stop_times
                 .entry(trip.id.clone())
@@ -242,6 +258,13 @@ impl Repository {
                 .or_default()
                 .push(trip.id.clone());
         })?;
+        buffer.par_sort_by_key(|val| val.sequence);
+        buffer.iter_mut().enumerate().for_each(|(j, st)| {
+            st.internal_idx = j as u32;
+            st.index = st.start_idx + st.internal_idx;
+        });
+        stop_times.append(&mut buffer);
+
         self.stop_times = stop_times.into();
         let trip_to_stop_times: IdToIndexes = trip_to_stop_times
             .into_iter()
@@ -357,6 +380,42 @@ impl Repository {
         )
     }
 
+    pub fn route_by_id(&self, id: &str) -> Option<&Route> {
+        let index = self.route_lookup.get(id)?;
+        Some(&self.routes[*index])
+    }
+
+    pub fn route_by_trip_id(&self, trip_id: &str) -> Option<&Route> {
+        let id = self.trip_to_route.get(trip_id)?;
+        self.route_by_id(id)
+    }
+
+    pub fn trips_by_route_id(&self, route_id: &str) -> Option<Vec<&Trip>> {
+        let trips: Vec<_> = self
+            .route_to_trips
+            .get(route_id)?
+            .iter()
+            .filter_map(|trip_id| self.trip_by_id(&trip_id))
+            .collect();
+        Some(trips)
+    }
+
+    pub fn stop_times_by_route_id(&self, route_id: &str) -> Option<Vec<&StopTime>> {
+        let trips = self.trips_by_route_id(route_id)?;
+        let stop_times: Vec<&StopTime> = trips
+            .into_par_iter()
+            .filter_map(|trip| self.stop_times_by_trip_id(&trip.id))
+            .flatten()
+            .collect();
+        Some(stop_times)
+    }
+    pub fn routes_by_stop_id(&self, stop_id: &str) -> Option<Vec<&Route>> {
+        self.trips_by_stop_id(stop_id)?
+            .into_par_iter()
+            .map(|trip| self.route_by_trip_id(&trip.id))
+            .collect()
+    }
+
     /// Returns all the stop times for a given trip.
     /// If no trip was found with the given id None is returned.
     pub fn stop_times_by_trip_id(&self, trip_id: &str) -> Option<Vec<&StopTime>> {
@@ -414,7 +473,7 @@ impl Repository {
         shared::search(needle, &self.stops)
     }
 
-    // pub fn router(&self, from: Location, to: Location) -> Result<Router, routing::Error> {
-    //     Router::new(self.clone(), from, to)
-    // }
+    pub fn router(&'_ self, from: Location, to: Location) -> Router<'_> {
+        Router::new(self, from, to)
+    }
 }

@@ -1,7 +1,9 @@
+use std::u32;
+
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    repository::{Area, LocationType, Route, Stop, StopAccessType, StopTime, Timepoint, Trip},
+    repository::{Area, LocationType, Route, Stop, StopAccessType, StopTime, Timepoint},
     shared::{
         geo::{Coordinate, Distance},
         time::Time,
@@ -148,10 +150,13 @@ pub struct GtfsStopTime {
 impl From<GtfsStopTime> for StopTime {
     fn from(value: GtfsStopTime) -> Self {
         Self {
+            index: u32::MAX,
             trip_id: Default::default(),
             trip_idx: u32::MAX,
             stop_id: Default::default(),
             stop_idx: u32::MAX,
+            start_idx: u32::MAX,
+            internal_idx: u32::MAX,
             sequence: value.stop_sequence,
             arrival_time: Time::from_hms(&value.arrival_time).unwrap(),
             departure_time: Time::from_hms(&value.departure_time).unwrap(),

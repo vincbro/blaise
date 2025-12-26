@@ -84,11 +84,15 @@ pub enum StopAccessType {
 
 #[derive(Debug, Default, Clone)]
 pub struct StopTime {
+    pub index: u32,
     pub trip_idx: u32,
     pub trip_id: Arc<str>,
     pub stop_idx: u32,
     pub stop_id: Arc<str>,
     pub sequence: u16,
+    // Allows us to run to lookup the next stop time in trip by start_idx+internal_idx+1
+    pub start_idx: u32,
+    pub internal_idx: u32,
     // Seconds since midnight
     pub arrival_time: Time,
     // Seconds since midnight

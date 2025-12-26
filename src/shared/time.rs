@@ -1,7 +1,20 @@
-use std::ops::{Add, AddAssign, Sub, SubAssign};
+use std::{
+    ops::{Add, AddAssign, Sub, SubAssign},
+    sync::Arc,
+    time::Instant,
+};
+
+use chrono::{Local, Timelike};
+use zip::extra_fields::ExtendedTimestamp;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Time(u32);
+
+impl From<u32> for Time {
+    fn from(value: u32) -> Self {
+        Self(value)
+    }
+}
 
 impl Sub<Time> for Time {
     type Output = Duration;
@@ -40,6 +53,11 @@ impl AddAssign<Duration> for Time {
 }
 
 impl Time {
+    pub fn now() -> Self {
+        let now = Local::now();
+        Self(now.num_seconds_from_midnight())
+    }
+
     pub const fn from_seconds(secs: u32) -> Self {
         Self(secs)
     }
@@ -140,6 +158,12 @@ fn invalid_time_test_2() {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Duration(u32);
+
+impl From<u32> for Duration {
+    fn from(value: u32) -> Self {
+        Self(value)
+    }
+}
 
 impl Duration {
     pub const fn from_seconds(secs: u32) -> Self {

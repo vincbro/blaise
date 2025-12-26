@@ -1,11 +1,11 @@
 use ontrack::repository::Repository;
 
 pub struct AppState {
-    pub repo: Repository,
+    pub repository: Repository,
 }
 
 impl AppState {
     pub fn new(repo: Repository) -> Self {
-        Self { repo }
+        Self { repository: repo }
     }
 }
