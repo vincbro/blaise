@@ -27,17 +27,17 @@ pub async fn routing(
         return Err(StatusCode::BAD_REQUEST);
     };
 
-    let coord = match from {
+    let coord = match &from {
         Location::Area(id) => state
             .repository
-            .coordinate_by_area_id(&id)
+            .coordinate_by_area_id(id)
             .ok_or(StatusCode::BAD_REQUEST),
         Location::Stop(id) => state
             .repository
-            .stop_by_id(&id)
+            .stop_by_id(id)
             .map(|stop| stop.coordinate)
             .ok_or(StatusCode::BAD_REQUEST),
-        Location::Coordinate(coordinate) => Ok(coordinate),
+        Location::Coordinate(coordinate) => Ok(*coordinate),
     }?;
 
     let stops = state.repository.stops_by_coordinate(&coord, 500.0.into());
@@ -66,11 +66,10 @@ pub async fn routing(
         println!("EMPTY");
     }
 
-    return Ok("HELLO".into_response());
-    // let router = state.repository.router(from, to);
-    // router.solve().unwrap();
-    // // Ok(Json(ItineraryDto::from(itinerary, &state.repo)).into_response())
-    // Ok("HELLO".into_response())
+    let router = state.repository.router(from, to);
+    router.solve().unwrap();
+    // Ok(Json(ItineraryDto::from(itinerary, &state.repo)).into_response())
+    Ok("HELLO".into_response())
 }
 
 fn location_from_str(repo: &Repository, str: &str) -> Result<Location, StatusCode> {

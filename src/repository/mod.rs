@@ -400,12 +400,11 @@ impl Repository {
         Some(trips)
     }
 
-    pub fn stop_times_by_route_id(&self, route_id: &str) -> Option<Vec<&StopTime>> {
+    pub fn stop_times_by_route_id(&self, route_id: &str) -> Option<Vec<Vec<&StopTime>>> {
         let trips = self.trips_by_route_id(route_id)?;
         let stop_times: Vec<_> = trips
             .into_par_iter()
             .filter_map(|trip| self.stop_times_by_trip_id(&trip.id))
-            .flatten()
             .collect();
         Some(stop_times)
     }
