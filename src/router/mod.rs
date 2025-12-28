@@ -3,7 +3,7 @@ use rayon::prelude::*;
 use thiserror::Error;
 
 use crate::{
-    repository::{Repository, Route, Stop, Trip},
+    repository::{Repository, Route, Stop, Transfer, Trip},
     router::graph::Location,
     shared::{
         geo::{Coordinate, Distance},
@@ -98,6 +98,7 @@ impl<'a> Router<'a> {
             if marked_stops.is_empty() {
                 break;
             }
+            println!("Got {} marked stops", marked_stops.len());
             marked.fill(false);
 
             // Pre process
@@ -147,6 +148,27 @@ impl<'a> Router<'a> {
                         }
                     }
                 });
+            // TODO Add walking routes
+            let marked_stops: Vec<_> = marked
+                .par_iter()
+                .enumerate()
+                .filter_map(|(i, &m)| m.then_some(i))
+                .collect();
+
+            for stop_idx in marked_stops {
+                if let Some(transfers) = self.get_transfers(stop_idx) {
+                    for transfer in transfers {
+                        let walking_arrival =
+                            labels[round][stop_idx].unwrap() + self.transfer_duration(transfer);
+                        if walking_arrival < tau_star[transfer.to_stop_idx as usize] {
+                            labels[round][transfer.to_stop_idx as usize] = Some(walking_arrival);
+                            tau_star[transfer.to_stop_idx as usize] = walking_arrival;
+                            // Mark the walked-to stop for the NEXT round
+                            marked[transfer.to_stop_idx as usize] = true;
+                        }
+                    }
+                }
+            }
             round += 1;
         }
         println!("DONE WITH {round} ROUNDS");
@@ -216,6 +238,11 @@ impl<'a> Router<'a> {
         Some(stop_times[index].departure_time)
     }
 
+    fn get_transfers(&self, index: usize) -> Option<Vec<&Transfer>> {
+        let stop = &self.repository.stops[index];
+        self.repository.transfers_by_stop_id(&stop.id)
+    }
+
     /// Finds the earliest trip that we can take from current stop based on the time
     fn find_earliest_trip(&self, route_id: &str, index: usize, time: Time) -> Option<&Trip> {
         let trips = self.repository.stop_times_by_route_id(route_id)?;
@@ -240,6 +267,17 @@ impl<'a> Router<'a> {
             Some(&self.repository.trips[trip_idx as usize])
         } else {
             None
+        }
+    }
+
+    fn transfer_duration(&self, transfer: &Transfer) -> Duration {
+        let from = &self.repository.stops[transfer.from_stop_idx as usize];
+        let to = &self.repository.stops[transfer.to_stop_idx as usize];
+        let walk_duration = time_to_walk(from.coordinate.network_distance(&to.coordinate));
+        if let Some(duration) = transfer.min_transfer_time {
+            duration + walk_duration
+        } else {
+            walk_duration
         }
     }
 }
