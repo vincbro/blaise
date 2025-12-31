@@ -49,7 +49,16 @@ pub async fn routing(
         });
 
     let router = state.repository.router(from, to);
-    router.solve().unwrap();
+    let path = router.solve().unwrap();
+    println!("Length: {}", path.len());
+    for parent in path {
+        if parent.from_stop_idx == u32::MAX {
+            println!("START");
+        } else {
+            let stop = &state.repository.stops[parent.from_stop_idx as usize];
+            println!("{}", stop.name);
+        }
+    }
     // Ok(Json(ItineraryDto::from(itinerary, &state.repo)).into_response())
     Ok("HELLO".into_response())
 }

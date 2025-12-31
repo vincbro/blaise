@@ -23,7 +23,12 @@ pub enum Error {
     NoRouteFound,
 }
 
-pub struct Leg(u32, u32);
+#[derive(Debug, Clone, Default)]
+pub struct Parent {
+    pub from_stop_idx: u32,
+    pub trip_idx: Option<u32>, // None if we walked
+    pub time: Time,
+}
 
 struct ServingRoute {
     route_idx: u32,
@@ -34,7 +39,6 @@ pub struct Router<'a> {
     from: Location,
     to: Location,
     departure: Time,
-    parents: Vec<Vec<Leg>>,
 }
 
 impl<'a> Router<'a> {
@@ -44,7 +48,6 @@ impl<'a> Router<'a> {
             from,
             to,
             departure: Time::now(),
-            parents: vec![],
         }
     }
 
@@ -53,7 +56,7 @@ impl<'a> Router<'a> {
         self
     }
 
-    pub fn solve(self) -> Result<(), self::Error> {
+    pub fn solve(self) -> Result<Vec<Parent>, self::Error> {
         // The routes we will explore this round
         let mut active = vec![None; self.repository.raptor_routes.len()];
         // The overall best label we have found for a stop
@@ -63,6 +66,9 @@ impl<'a> Router<'a> {
         // The per round best label we have found
         let mut labels: Vec<Vec<Option<Time>>> = vec![];
         labels.push(vec![None; self.repository.stops.len()]);
+        // Allows us to backtrack and get the full path
+        let mut parents: Vec<Vec<Option<Parent>>> = vec![];
+        parents.push(vec![None; self.repository.stops.len()]);
         // Run first round
         let from = self.coordinate(&self.from)?;
         let times: Vec<_> = self
@@ -80,6 +86,12 @@ impl<'a> Router<'a> {
             labels[0][index as usize] = Some(time);
             tau_star[index as usize] = time;
             marked[index as usize] = true;
+
+            parents[0][index as usize] = Some(Parent {
+                from_stop_idx: u32::MAX, // Sentinel for "Start Coordinate"
+                trip_idx: None,
+                time,
+            });
         });
 
         // Targets
@@ -94,12 +106,14 @@ impl<'a> Router<'a> {
             })
             .collect();
         let mut target_best = self.departure + time_to_walk(from.network_distance(&to_coord));
+        let mut target_best_stop: Option<usize> = None;
 
         // We always start at round 1 since the base round is 0
         let mut round = 1;
         loop {
             // Add a new round to the list
             labels.push(vec![None; self.repository.stops.len()]);
+            parents.push(vec![None; self.repository.stops.len()]);
             // FIX: We need a almost full rewrite, what we want to do is find
 
             // Collect all the routes we should explore based on the stops that got marked
@@ -133,6 +147,7 @@ impl<'a> Router<'a> {
                 .for_each(|(route_idx, p_idx)| {
                     let route = &self.repository.raptor_routes[route_idx];
                     let mut active_trip: Option<&Trip> = None;
+                    let mut boarding_stop: u32 = u32::MAX;
                     for (i, stop_idx) in route.stops.iter().enumerate().skip(p_idx as usize) {
                         // PART A
                         if let Some(trip) = active_trip
@@ -140,11 +155,17 @@ impl<'a> Router<'a> {
                         {
                             // FIX Add target check here as well
                             if arrival_time < tau_star[*stop_idx as usize]
-                                && arrival_time < target_best
+                            // && arrival_time < target_best
                             {
                                 labels[round][*stop_idx as usize] = Some(arrival_time);
                                 tau_star[*stop_idx as usize] = arrival_time;
                                 marked[*stop_idx as usize] = true;
+
+                                parents[round][*stop_idx as usize] = Some(Parent {
+                                    from_stop_idx: boarding_stop,
+                                    trip_idx: Some(trip.index),
+                                    time: arrival_time,
+                                });
                             }
                         }
 
@@ -160,6 +181,7 @@ impl<'a> Router<'a> {
                                 self.find_earliest_trip(route, i, prev_round_arrival)
                         {
                             active_trip = Some(earlier_trip);
+                            boarding_stop = *stop_idx
                         }
                     }
                 });
@@ -178,7 +200,11 @@ impl<'a> Router<'a> {
                         if walking_arrival < tau_star[transfer.to_stop_idx as usize] {
                             labels[round][transfer.to_stop_idx as usize] = Some(walking_arrival);
                             tau_star[transfer.to_stop_idx as usize] = walking_arrival;
-                            // Mark the walked-to stop for the NEXT round
+                            parents[round][transfer.to_stop_idx as usize] = Some(Parent {
+                                from_stop_idx: stop_idx as u32,
+                                trip_idx: None,
+                                time: walking_arrival,
+                            });
                             marked[transfer.to_stop_idx as usize] = true;
                         }
                     }
@@ -189,15 +215,39 @@ impl<'a> Router<'a> {
                 let arrival_at_goal = tau_star[*stop_idx] + *walk_duration;
                 if arrival_at_goal < target_best {
                     target_best = arrival_at_goal;
+                    target_best_stop = Some(*stop_idx);
                 }
             }
             round += 1;
         }
         println!("DONE WITH {round} ROUNDS");
 
-        Ok(())
+        if let Some(target_stop) = target_best_stop {
+            Ok(self.backtrack(parents, target_stop))
+        } else {
+            Err(self::Error::FailedToBuildRoute)
+        }
     }
 
+    pub fn backtrack(&self, parents: Vec<Vec<Option<Parent>>>, target_stop: usize) -> Vec<Parent> {
+        let mut path: Vec<Parent> = Vec::new();
+        let mut current_stop = target_stop as u32;
+
+        // Start from the last round and move backwards
+        for round in (1..parents.len()).rev() {
+            if let Some(parent) = &parents[round][current_stop as usize] {
+                path.push(parent.clone());
+                current_stop = parent.from_stop_idx;
+
+                // If we reached the start of the first round's walking distance, we are done
+                if round == 1 && parents[0][current_stop as usize].is_none() {
+                    break;
+                }
+            }
+        }
+        path.reverse();
+        path
+    }
     fn coordinate(&self, location: &Location) -> Result<Coordinate, self::Error> {
         match location {
             Location::Area(id) => self
@@ -238,13 +288,6 @@ impl<'a> Router<'a> {
         None
     }
 
-    fn get_route_stops(&self, route_id: &str) -> Option<Vec<u32>> {
-        let trips = self.repository.trips_by_route_id(route_id)?;
-        let first_trip = trips.first()?;
-        let stop_times = self.repository.stop_times_by_trip_id(&first_trip.id)?;
-        Some(stop_times.into_iter().map(|st| st.stop_idx).collect())
-    }
-
     fn get_arrival_time(&self, trip_id: &str, index: usize) -> Option<Time> {
         let stop_times = self.repository.stop_times_by_trip_id(trip_id)?;
         if index >= stop_times.len() {
@@ -280,7 +323,7 @@ impl<'a> Router<'a> {
             let stop_time = stop_times[index];
             let departure_time = stop_time.departure_time;
             // Make sure we don't try to catch a trip that has already left
-            if departure_time > time {
+            if departure_time < time {
                 continue;
             }
             if let Some((_, time_to_beat)) = earliest {
