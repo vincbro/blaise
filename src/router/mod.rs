@@ -3,7 +3,7 @@ use rayon::prelude::*;
 use thiserror::Error;
 
 use crate::{
-    repository::{Repository, Route, Stop, Transfer, Trip},
+    repository::{RaptorRoute, Repository, Route, Stop, Transfer, Trip},
     router::graph::Location,
     shared::{
         geo::{Coordinate, Distance},
@@ -55,7 +55,7 @@ impl<'a> Router<'a> {
 
     pub fn solve(self) -> Result<(), self::Error> {
         // The routes we will explore this round
-        let mut active = vec![None; self.repository.routes.len()];
+        let mut active = vec![None; self.repository.raptor_routes.len()];
         // The overall best label we have found for a stop
         let mut tau_star: Vec<Time> = vec![u32::MAX.into(); self.repository.stops.len()];
         // All the stops that changed / improved from the last round
@@ -69,7 +69,7 @@ impl<'a> Router<'a> {
             .repository
             .stops_by_coordinate(&from, 500.0.into())
             .into_par_iter()
-            .filter(|stop| self.repository.trip_by_id(&stop.id).is_none())
+            .filter(|stop| self.repository.trips_by_stop_id(&stop.id).is_some())
             .map(|stop| {
                 let duration = time_to_walk(stop.coordinate.network_distance(&from));
                 (stop.index, self.departure + duration)
@@ -81,6 +81,19 @@ impl<'a> Router<'a> {
             tau_star[index as usize] = time;
             marked[index as usize] = true;
         });
+
+        // Targets
+        let to_coord = self.coordinate(&self.to)?;
+        let target_stops: Vec<(usize, Duration)> = self
+            .repository
+            .stops_by_coordinate(&to_coord, 500.0.into()) // same radius as start
+            .into_iter()
+            .map(|stop| {
+                let walk = time_to_walk(stop.coordinate.network_distance(&to_coord));
+                (stop.index as usize, walk)
+            })
+            .collect();
+        let mut target_best = self.departure + time_to_walk(from.network_distance(&to_coord));
 
         // We always start at round 1 since the base round is 0
         let mut round = 1;
@@ -95,10 +108,10 @@ impl<'a> Router<'a> {
                 .enumerate()
                 .filter_map(|(i, &m)| m.then_some(i))
                 .collect();
+            println!("Got {} marked stops", marked_stops.len());
             if marked_stops.is_empty() {
                 break;
             }
-            println!("Got {} marked stops", marked_stops.len());
             marked.fill(false);
 
             // Pre process
@@ -118,31 +131,33 @@ impl<'a> Router<'a> {
                 .enumerate()
                 .filter_map(|(r_idx, p_idx)| p_idx.map(|p_idx| (r_idx, p_idx)))
                 .for_each(|(route_idx, p_idx)| {
-                    let route = &self.repository.routes[route_idx];
-                    let route_stops = self.get_route_stops(&route.id).unwrap();
+                    let route = &self.repository.raptor_routes[route_idx];
                     let mut active_trip: Option<&Trip> = None;
-                    for (i, stop_idx) in route_stops.into_iter().enumerate().skip(p_idx as usize) {
+                    for (i, stop_idx) in route.stops.iter().enumerate().skip(p_idx as usize) {
                         // PART A
-                        if let Some(trip) = active_trip {
-                            let arrival_time = self.get_arrival_time(&trip.id, i).unwrap();
+                        if let Some(trip) = active_trip
+                            && let Some(arrival_time) = self.get_arrival_time(&trip.id, i)
+                        {
                             // FIX Add target check here as well
-                            if arrival_time < tau_star[stop_idx as usize] {
-                                labels[round][stop_idx as usize] = Some(arrival_time);
-                                tau_star[stop_idx as usize] = arrival_time;
-                                marked[stop_idx as usize] = true;
+                            if arrival_time < tau_star[*stop_idx as usize]
+                                && arrival_time < target_best
+                            {
+                                labels[round][*stop_idx as usize] = Some(arrival_time);
+                                tau_star[*stop_idx as usize] = arrival_time;
+                                marked[*stop_idx as usize] = true;
                             }
                         }
 
                         // PART B
                         let prev_round_arrival =
-                            labels[round - 1][stop_idx as usize].unwrap_or(u32::MAX.into());
+                            labels[round - 1][*stop_idx as usize].unwrap_or(u32::MAX.into());
                         let current_trip_dep = active_trip
                             .map(|t| self.get_departure_time(&t.id, i).unwrap_or(u32::MAX.into()))
                             .unwrap_or(u32::MAX.into());
 
                         if prev_round_arrival <= current_trip_dep
                             && let Some(earlier_trip) =
-                                self.find_earliest_trip(&route.id, i, prev_round_arrival)
+                                self.find_earliest_trip(route, i, prev_round_arrival)
                         {
                             active_trip = Some(earlier_trip);
                         }
@@ -167,6 +182,13 @@ impl<'a> Router<'a> {
                             marked[transfer.to_stop_idx as usize] = true;
                         }
                     }
+                }
+            }
+
+            for (stop_idx, walk_duration) in target_stops.iter() {
+                let arrival_at_goal = tau_star[*stop_idx] + *walk_duration;
+                if arrival_at_goal < target_best {
+                    target_best = arrival_at_goal;
                 }
             }
             round += 1;
@@ -194,7 +216,7 @@ impl<'a> Router<'a> {
     fn routes_serving_stop(&self, stop_idx: usize) -> Vec<ServingRoute> {
         let stop = &self.repository.stops[stop_idx];
         self.repository
-            .routes_by_stop_id(&stop.id)
+            .raptors_by_stop_id(&stop.id)
             .unwrap_or_default()
             .into_iter()
             .filter_map(|route| {
@@ -207,16 +229,10 @@ impl<'a> Router<'a> {
             .collect()
     }
 
-    fn index_in_route(&self, route: &Route, stop: &Stop) -> Option<u32> {
-        let trips = self.repository.trips_by_route_id(&route.id)?;
-        if trips.is_empty() {
-            return None;
-        }
-
-        let stop_times = self.repository.stop_times_by_trip_id(&trips[0].id)?;
-        for stop_time in stop_times.into_iter() {
-            if stop_time.stop_idx == stop.index {
-                return Some(stop_time.internal_idx);
+    fn index_in_route(&self, route: &RaptorRoute, stop: &Stop) -> Option<u32> {
+        for (index, stop_idx) in route.stops.iter().enumerate() {
+            if *stop_idx == stop.index {
+                return Some(index as u32);
             }
         }
         None
@@ -231,10 +247,18 @@ impl<'a> Router<'a> {
 
     fn get_arrival_time(&self, trip_id: &str, index: usize) -> Option<Time> {
         let stop_times = self.repository.stop_times_by_trip_id(trip_id)?;
+        if index >= stop_times.len() {
+            println!("Tried to get stop {index} in trip {trip_id}");
+            return None;
+        }
         Some(stop_times[index].arrival_time)
     }
     fn get_departure_time(&self, trip_id: &str, index: usize) -> Option<Time> {
         let stop_times = self.repository.stop_times_by_trip_id(trip_id)?;
+        if index >= stop_times.len() {
+            println!("Tried to get stop {index} in trip {trip_id}");
+            return None;
+        }
         Some(stop_times[index].departure_time)
     }
 
@@ -244,8 +268,13 @@ impl<'a> Router<'a> {
     }
 
     /// Finds the earliest trip that we can take from current stop based on the time
-    fn find_earliest_trip(&self, route_id: &str, index: usize, time: Time) -> Option<&Trip> {
-        let trips = self.repository.stop_times_by_route_id(route_id)?;
+    fn find_earliest_trip(&self, route: &RaptorRoute, index: usize, time: Time) -> Option<&Trip> {
+        let trips: Vec<_> = route
+            .trips
+            .iter()
+            .map(|trip_idx| &self.repository.trips[*trip_idx as usize])
+            .filter_map(|trip| self.repository.stop_times_by_trip_id(&trip.id))
+            .collect();
         let mut earliest: Option<(u32, Time)> = None;
         for stop_times in trips.into_iter() {
             let stop_time = stop_times[index];

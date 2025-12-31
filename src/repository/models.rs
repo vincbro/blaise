@@ -124,6 +124,8 @@ pub struct Trip {
     pub index: u32,
     pub id: Arc<str>,
     pub route_id: Arc<str>,
+    pub route_index: u32,
+    pub raptor_route_index: u32,
     pub headsign: Option<Arc<str>>,
     pub short_name: Option<Arc<str>>,
 }
@@ -137,4 +139,14 @@ pub struct Route {
     pub route_long_name: Option<Arc<str>>,
     pub route_type: i32,
     pub route_desc: Option<Arc<str>>,
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct RaptorRoute {
+    pub index: u32,
+    pub route_index: u32,
+    pub route_id: Arc<str>,
+
+    pub stops: Arc<[u32]>,
+    pub trips: Arc<[u32]>,
 }

@@ -40,31 +40,13 @@ pub async fn routing(
         Location::Coordinate(coordinate) => Ok(*coordinate),
     }?;
 
-    let stops = state.repository.stops_by_coordinate(&coord, 500.0.into());
-
-    let trips: Vec<_> = stops
+    state
+        .repository
+        .stops_by_coordinate(&coord, 500.0.into())
         .into_iter()
-        .filter_map(|stop| state.repository.trips_by_stop_id(&stop.id))
-        .flatten()
-        .collect();
-    if !trips.is_empty() {
-        let trip = trips[0];
-        let stop_times = state.repository.stop_times_by_trip_id(&trip.id).unwrap();
-
-        for stop_time in stop_times {
-            let stop = state.repository.stop_by_id(&stop_time.stop_id).unwrap();
-            println!(
-                "[{}] start: {} | idx: {} | stop: {} | valid: {}",
-                stop_time.index,
-                stop_time.start_idx,
-                stop_time.internal_idx,
-                stop.name,
-                stop_time.index == stop_time.start_idx + stop_time.internal_idx
-            )
-        }
-    } else {
-        println!("EMPTY");
-    }
+        .for_each(|stop| {
+            println!("{}", stop.name);
+        });
 
     let router = state.repository.router(from, to);
     router.solve().unwrap();
