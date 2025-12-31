@@ -1,9 +1,10 @@
 pub mod graph;
+
 use rayon::prelude::*;
 use thiserror::Error;
 
 use crate::{
-    repository::{RaptorRoute, Repository, Route, Stop, Transfer, Trip},
+    repository::{RaptorRoute, Repository, Stop, Transfer, Trip},
     router::graph::Location,
     shared::{
         geo::{Coordinate, Distance},
@@ -27,18 +28,65 @@ pub enum Error {
 pub struct Parent {
     pub from_stop_idx: u32,
     pub trip_idx: Option<u32>, // None if we walked
-    pub time: Time,
+    pub arrival_time: Time,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Update {
+    pub stop_idx: u32,
+    pub arrival_time: Time,
+    pub parent: Parent,
 }
 
 struct ServingRoute {
     route_idx: u32,
     idx_in_route: u32,
 }
+
+pub struct State {
+    tau_star: Vec<Option<Time>>,
+    marked: Vec<bool>,
+    labels: Vec<Vec<Option<Time>>>,
+    parents: Vec<Vec<Option<Parent>>>,
+}
+
+impl State {
+    pub fn new(repository: &Repository) -> Self {
+        Self {
+            tau_star: vec![None; repository.stops.len()],
+            marked: vec![false; repository.stops.len()],
+            labels: vec![],
+            parents: vec![],
+        }
+    }
+
+    pub fn apply_updates(&mut self, round: usize, updates: Vec<Update>) {
+        updates.into_iter().for_each(|update| {
+            let best_time = self.tau_star[update.stop_idx as usize].unwrap_or(u32::MAX.into());
+            if update.arrival_time < best_time {
+                self.labels[round][update.stop_idx as usize] = Some(update.arrival_time);
+                self.parents[round][update.stop_idx as usize] = Some(update.parent);
+                self.tau_star[update.stop_idx as usize] = Some(update.arrival_time);
+                self.marked[update.stop_idx as usize] = true;
+            }
+        })
+    }
+
+    fn marked_stops(&self) -> Vec<usize> {
+        self.marked
+            .par_iter()
+            .enumerate()
+            .filter_map(|(i, &m)| m.then_some(i))
+            .collect()
+    }
+}
+
 pub struct Router<'a> {
     repository: &'a Repository,
     from: Location,
     to: Location,
     departure: Time,
+    walk_distance: Distance,
 }
 
 impl<'a> Router<'a> {
@@ -48,6 +96,7 @@ impl<'a> Router<'a> {
             from,
             to,
             departure: Time::now(),
+            walk_distance: 500.0.into(),
         }
     }
 
@@ -57,80 +106,78 @@ impl<'a> Router<'a> {
     }
 
     pub fn solve(self) -> Result<Vec<Parent>, self::Error> {
-        // The routes we will explore this round
         let mut active = vec![None; self.repository.raptor_routes.len()];
-        // The overall best label we have found for a stop
-        let mut tau_star: Vec<Time> = vec![u32::MAX.into(); self.repository.stops.len()];
-        // All the stops that changed / improved from the last round
-        let mut marked: Vec<bool> = vec![false; self.repository.stops.len()];
-        // The per round best label we have found
-        let mut labels: Vec<Vec<Option<Time>>> = vec![];
-        labels.push(vec![None; self.repository.stops.len()]);
-        // Allows us to backtrack and get the full path
-        let mut parents: Vec<Vec<Option<Parent>>> = vec![];
-        parents.push(vec![None; self.repository.stops.len()]);
-        // Run first round
-        let from = self.coordinate(&self.from)?;
-        let times: Vec<_> = self
+        let mut state = State::new(self.repository);
+        state.labels.push(vec![None; self.repository.stops.len()]);
+        state.parents.push(vec![None; self.repository.stops.len()]);
+
+        let from_coord = self.coordinate(&self.from)?;
+        let updates: Vec<_> = self
             .repository
-            .stops_by_coordinate(&from, 500.0.into())
+            .stops_by_coordinate(&from_coord, self.walk_distance)
             .into_par_iter()
+            // We filter out all GTFS stops that do serve a trip
             .filter(|stop| self.repository.trips_by_stop_id(&stop.id).is_some())
             .map(|stop| {
-                let duration = time_to_walk(stop.coordinate.network_distance(&from));
-                (stop.index, self.departure + duration)
+                let walk_duration = time_to_walk(stop.coordinate.network_distance(&from_coord));
+                let arrival_time = self.departure + walk_duration;
+                Update {
+                    stop_idx: stop.index,
+                    arrival_time,
+                    parent: Parent {
+                        from_stop_idx: u32::MAX, // Sentinel for "Start Coordinate"
+                        trip_idx: None,
+                        arrival_time,
+                    },
+                }
             })
             .collect();
-        println!("Found {} valid stops", times.len());
-        times.into_iter().for_each(|(index, time)| {
-            labels[0][index as usize] = Some(time);
-            tau_star[index as usize] = time;
-            marked[index as usize] = true;
-
-            parents[0][index as usize] = Some(Parent {
-                from_stop_idx: u32::MAX, // Sentinel for "Start Coordinate"
-                trip_idx: None,
-                time,
-            });
-        });
+        state.apply_updates(0, updates);
 
         // Targets
         let to_coord = self.coordinate(&self.to)?;
         let target_stops: Vec<(usize, Duration)> = self
             .repository
-            .stops_by_coordinate(&to_coord, 500.0.into()) // same radius as start
+            .stops_by_coordinate(&to_coord, self.walk_distance) // same radius as start
             .into_iter()
             .map(|stop| {
                 let walk = time_to_walk(stop.coordinate.network_distance(&to_coord));
                 (stop.index as usize, walk)
             })
             .collect();
-        let mut target_best = self.departure + time_to_walk(from.network_distance(&to_coord));
+
+        // Stores the current best path we have found
+        let mut target_best: Time = u32::MAX.into();
         let mut target_best_stop: Option<usize> = None;
+        let mut target_best_round: Option<usize> = None;
 
         // We always start at round 1 since the base round is 0
         let mut round = 1;
         loop {
             // Add a new round to the list
-            labels.push(vec![None; self.repository.stops.len()]);
-            parents.push(vec![None; self.repository.stops.len()]);
-            // FIX: We need a almost full rewrite, what we want to do is find
+            state.labels.push(vec![None; self.repository.stops.len()]);
+            state.parents.push(vec![None; self.repository.stops.len()]);
 
-            // Collect all the routes we should explore based on the stops that got marked
-            let marked_stops: Vec<_> = marked
-                .par_iter()
-                .enumerate()
-                .filter_map(|(i, &m)| m.then_some(i))
-                .collect();
+            let marked_stops = state.marked_stops();
             println!("Got {} marked stops", marked_stops.len());
+            // If we don't improve we have found th
             if marked_stops.is_empty() {
                 break;
             }
-            marked.fill(false);
+            state.marked.fill(false);
 
             // Pre process
             active.fill(None);
             marked_stops.into_iter().for_each(|stop_idx| {
+                // We look at all the routes that serve a stop
+                // for each route that serve a route we store the earliest stop in that route
+                // that we serve
+                // Example: This is a the stops in a route
+                // we have marked 1 3 6 as improvments
+                // so we want to make sure that we only exlopre this route once and from the earliest stop
+                // in this case it will be 1
+                // 0 1 2 3 4 5 6 7 8
+                //   ^   ^     ^
                 let services = self.routes_serving_stop(stop_idx);
                 for service in services.into_iter() {
                     let r_idx = service.route_idx as usize;
@@ -140,38 +187,41 @@ impl<'a> Router<'a> {
                     }
                 }
             });
-            active
-                .iter()
+            let updates: Vec<Update> = active
+                .par_iter()
                 .enumerate()
                 .filter_map(|(r_idx, p_idx)| p_idx.map(|p_idx| (r_idx, p_idx)))
-                .for_each(|(route_idx, p_idx)| {
+                .map(|(route_idx, p_idx)| {
+                    // We walk down each route starting from
+                    // the earliest stop in the route we updated last round
+                    let mut updates: Vec<Update> = vec![];
                     let route = &self.repository.raptor_routes[route_idx];
                     let mut active_trip: Option<&Trip> = None;
                     let mut boarding_stop: u32 = u32::MAX;
                     for (i, stop_idx) in route.stops.iter().enumerate().skip(p_idx as usize) {
                         // PART A
+                        // Walk a certain trip and mark any stop were we improve our time
                         if let Some(trip) = active_trip
                             && let Some(arrival_time) = self.get_arrival_time(&trip.id, i)
+                            && arrival_time
+                                < state.tau_star[*stop_idx as usize].unwrap_or(u32::MAX.into())
+                            && arrival_time < target_best
                         {
-                            // FIX Add target check here as well
-                            if arrival_time < tau_star[*stop_idx as usize]
-                            // && arrival_time < target_best
-                            {
-                                labels[round][*stop_idx as usize] = Some(arrival_time);
-                                tau_star[*stop_idx as usize] = arrival_time;
-                                marked[*stop_idx as usize] = true;
-
-                                parents[round][*stop_idx as usize] = Some(Parent {
+                            updates.push(Update {
+                                stop_idx: *stop_idx,
+                                arrival_time,
+                                parent: Parent {
                                     from_stop_idx: boarding_stop,
                                     trip_idx: Some(trip.index),
-                                    time: arrival_time,
-                                });
-                            }
+                                    arrival_time,
+                                },
+                            });
                         }
 
                         // PART B
+                        // See if we could have catched an earlier trip to get to were we currently are
                         let prev_round_arrival =
-                            labels[round - 1][*stop_idx as usize].unwrap_or(u32::MAX.into());
+                            state.labels[round - 1][*stop_idx as usize].unwrap_or(u32::MAX.into());
                         let current_trip_dep = active_trip
                             .map(|t| self.get_departure_time(&t.id, i).unwrap_or(u32::MAX.into()))
                             .unwrap_or(u32::MAX.into());
@@ -184,70 +234,132 @@ impl<'a> Router<'a> {
                             boarding_stop = *stop_idx
                         }
                     }
-                });
-            // TODO Add walking routes
-            let marked_stops: Vec<_> = marked
-                .par_iter()
-                .enumerate()
-                .filter_map(|(i, &m)| m.then_some(i))
+                    updates
+                })
+                .flatten()
                 .collect();
 
-            for stop_idx in marked_stops {
-                if let Some(transfers) = self.get_transfers(stop_idx) {
-                    for transfer in transfers {
-                        let walking_arrival =
-                            labels[round][stop_idx].unwrap() + self.transfer_duration(transfer);
-                        if walking_arrival < tau_star[transfer.to_stop_idx as usize] {
-                            labels[round][transfer.to_stop_idx as usize] = Some(walking_arrival);
-                            tau_star[transfer.to_stop_idx as usize] = walking_arrival;
-                            parents[round][transfer.to_stop_idx as usize] = Some(Parent {
-                                from_stop_idx: stop_idx as u32,
-                                trip_idx: None,
-                                time: walking_arrival,
-                            });
-                            marked[transfer.to_stop_idx as usize] = true;
+            // Apply all the updates and store all the updated stops
+            state.apply_updates(round, updates);
+
+            let updates: Vec<_> = state
+                .marked_stops()
+                .into_par_iter()
+                .map(|stop_idx| {
+                    let mut updates: Vec<Update> = vec![];
+                    // All the possible transfers
+                    if let Some(transfers) = self.get_transfers(stop_idx) {
+                        for transfer in transfers {
+                            let arrival_time = state.labels[round][stop_idx].unwrap()
+                                + self.transfer_duration(transfer);
+                            if arrival_time
+                                < state.tau_star[transfer.to_stop_idx as usize]
+                                    .unwrap_or(u32::MAX.into())
+                            {
+                                updates.push(Update {
+                                    stop_idx: transfer.to_stop_idx,
+                                    arrival_time,
+                                    parent: Parent {
+                                        from_stop_idx: stop_idx as u32,
+                                        trip_idx: None,
+                                        arrival_time,
+                                    },
+                                });
+                            }
                         }
                     }
-                }
-            }
+                    // All the possible walks
+                    let current_stop = &self.repository.stops[stop_idx];
+                    self.repository
+                        .stops_by_coordinate(&current_stop.coordinate, self.walk_distance)
+                        .into_iter()
+                        .filter(|next_stop| next_stop.index != current_stop.index)
+                        .for_each(|next_stop| {
+                            let walking_distance = current_stop
+                                .coordinate
+                                .network_distance(&next_stop.coordinate);
+                            let arrival_time = state.labels[round][stop_idx].unwrap()
+                                + time_to_walk(walking_distance);
+                            if arrival_time
+                                < state.tau_star[next_stop.index as usize]
+                                    .unwrap_or(u32::MAX.into())
+                            {
+                                updates.push(Update {
+                                    stop_idx: next_stop.index,
+                                    arrival_time,
+                                    parent: Parent {
+                                        from_stop_idx: stop_idx as u32,
+                                        trip_idx: None,
+                                        arrival_time,
+                                    },
+                                });
+                            }
+                        });
+                    updates
+                })
+                .flatten()
+                .collect();
+            state.apply_updates(round, updates);
 
-            for (stop_idx, walk_duration) in target_stops.iter() {
-                let arrival_at_goal = tau_star[*stop_idx] + *walk_duration;
-                if arrival_at_goal < target_best {
-                    target_best = arrival_at_goal;
-                    target_best_stop = Some(*stop_idx);
-                }
-            }
+            target_stops
+                .iter()
+                .filter_map(|(stop_idx, walk_duration)| {
+                    let tau_star = state.tau_star[*stop_idx];
+                    tau_star.map(|tau_star| (stop_idx, walk_duration, tau_star))
+                })
+                .for_each(|(stop_idx, walk_duration, tau_star)| {
+                    let arrival_at_goal = tau_star + *walk_duration;
+                    if arrival_at_goal < target_best {
+                        target_best = arrival_at_goal;
+                        target_best_stop = Some(*stop_idx);
+                        target_best_round = Some(round);
+                    }
+                });
             round += 1;
         }
         println!("DONE WITH {round} ROUNDS");
 
-        if let Some(target_stop) = target_best_stop {
-            Ok(self.backtrack(parents, target_stop))
+        if let Some(target_stop) = target_best_stop
+            && let Some(target_round) = target_best_round
+        {
+            Ok(self.backtrack(state.parents, target_stop, target_round))
         } else {
             Err(self::Error::FailedToBuildRoute)
         }
     }
 
-    pub fn backtrack(&self, parents: Vec<Vec<Option<Parent>>>, target_stop: usize) -> Vec<Parent> {
+    fn backtrack(
+        &self,
+        parents: Vec<Vec<Option<Parent>>>,
+        target_stop: usize,
+        target_round: usize,
+    ) -> Vec<Parent> {
         let mut path: Vec<Parent> = Vec::new();
         let mut current_stop = target_stop as u32;
+        let mut current_round = target_round;
 
-        // Start from the last round and move backwards
-        for round in (1..parents.len()).rev() {
-            if let Some(parent) = &parents[round][current_stop as usize] {
+        while current_stop != u32::MAX {
+            if let Some(parent) = &parents[current_round][current_stop as usize] {
                 path.push(parent.clone());
-                current_stop = parent.from_stop_idx;
+                let next_stop = parent.from_stop_idx;
 
-                // If we reached the start of the first round's walking distance, we are done
-                if round == 1 && parents[0][current_stop as usize].is_none() {
+                if parent.trip_idx.is_some() {
+                    current_round -= 1;
+                } else if current_round == 0 {
                     break;
                 }
+
+                current_stop = next_stop;
+            } else if current_round > 0 {
+                current_round -= 1;
+            } else {
+                break;
             }
         }
         path.reverse();
         path
     }
+
     fn coordinate(&self, location: &Location) -> Result<Coordinate, self::Error> {
         match location {
             Location::Area(id) => self
@@ -296,6 +408,7 @@ impl<'a> Router<'a> {
         }
         Some(stop_times[index].arrival_time)
     }
+
     fn get_departure_time(&self, trip_id: &str, index: usize) -> Option<Time> {
         let stop_times = self.repository.stop_times_by_trip_id(trip_id)?;
         if index >= stop_times.len() {

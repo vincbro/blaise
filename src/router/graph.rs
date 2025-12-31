@@ -1,9 +1,6 @@
 use std::sync::Arc;
 
-use crate::{
-    repository::{Area, Repository},
-    shared::geo::Coordinate,
-};
+use crate::{repository::Area, shared::geo::Coordinate};
 
 #[derive(Debug, Clone)]
 pub enum Location {

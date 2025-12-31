@@ -39,15 +39,6 @@ pub async fn routing(
             .ok_or(StatusCode::BAD_REQUEST),
         Location::Coordinate(coordinate) => Ok(*coordinate),
     }?;
-
-    state
-        .repository
-        .stops_by_coordinate(&coord, 500.0.into())
-        .into_iter()
-        .for_each(|stop| {
-            println!("{}", stop.name);
-        });
-
     let router = state.repository.router(from, to);
     let path = router.solve().unwrap();
     println!("Length: {}", path.len());
