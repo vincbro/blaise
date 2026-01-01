@@ -1,4 +1,4 @@
-![ontrack](./assets/ontrack.png.png)
+![ontrack](./assets/ontrack.png)
 
 [![Crates.io](https://img.shields.io/crates/v/ontrack.svg)](https://crates.io/crates/ontrack)
 [![Documentation](https://docs.rs/ontrack/badge.svg)](https://docs.rs/ontrack)
