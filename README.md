@@ -10,6 +10,10 @@ It handles the heavy lifting of loading, searching, and routing through GTFS tra
 > [!NOTE]
 > This project is early in development, if you like the idea and want to help improve it, please open an issue.
 
+## Server
+While On Track is a Rust library, we provide a server for projects that cannot directly integrate with the Rust crate.
+The On Track Server wraps the library's performance in a ready-to-use HTTP API, supporting search, proximity queries, and routing out of the box.
+[goto On Track server]("./crates/server/README.md")
 
 ## Installation
 
@@ -23,20 +27,19 @@ cargo add ontrack
 ```rust
 use ontrack::gtfs::{Gtfs, Config};
 use ontrack::repository::Repository;
-use ontrack::router::{Router, graph::Location};
-use ontrack::shared::time::Time;
+use ontrack::router::{Raptor, graph::Location};
+use ontrack::shared::{time::Time, geo::Coordinate};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let gtfs = Gtfs::new(Config::default()).from_zip("transit_data.zip")?;
     let repo = Repository::new().with_gtfs(gtfs)?;
 
     let from = Location::Stop("STOP_ID_1".into());
-    let to = Location::Coordinate(ontrack::shared::geo::Coordinate { latitude: 59.3, longitude: 18.0 });
-    let departure = Time::from_seconds(36000); // 10:00 AM
+    let to = Location::Coordinate(Coordinate { latitude: 59.3, longitude: 18.0 });
+    let departure = Time::from_hms("16:00:00");
 
-    let itinerary = Router::new(repo, from, to, departure)?.run()?;
-
-    println!("Found a route with {} legs!", itinerary.legs.len());
+    let itinerary = Raptor::new(repo, from, to, departure)?.solve()?;
+    println!("Found a path with {} legs!", itinerary.legs.len());
     Ok(())
 } 
 ```

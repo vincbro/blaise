@@ -6,7 +6,7 @@ use axum::{
 };
 use ontrack::{
     repository::Repository,
-    router::{itinerary::LegType, location::Location},
+    router::{Raptor, itinerary::LegType, location::Location},
     shared::{geo::Coordinate, time::Time},
 };
 use std::{
@@ -32,11 +32,9 @@ pub async fn routing(
         return Err(StatusCode::BAD_REQUEST);
     };
 
-    let router = state
-        .repository
-        .router(from, to)
-        .departure_at(Time::from_hms("16:00:00").unwrap());
-    let itinerary = router.solve().unwrap();
+    let raptor =
+        Raptor::new(&state.repository, from, to).departure_at(Time::from_hms("16:00:00").unwrap());
+    let itinerary = raptor.solve().unwrap();
     itinerary.legs.iter().for_each(|leg| {
         let leg_type = leg_type_str(&leg.leg_type);
         if let Location::Stop(from_stop) = &leg.from
