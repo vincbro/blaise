@@ -1,13 +1,11 @@
+use chrono::{Local, Timelike};
+use serde::{Deserialize, Serialize};
 use std::{
+    fmt::Display,
     ops::{Add, AddAssign, Sub, SubAssign},
-    sync::Arc,
-    time::Instant,
 };
 
-use chrono::{Local, Timelike};
-use zip::extra_fields::ExtendedTimestamp;
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Time(u32);
 
 impl From<u32> for Time {
@@ -159,12 +157,6 @@ fn invalid_time_test_2() {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Duration(u32);
 
-impl From<u32> for Duration {
-    fn from(value: u32) -> Self {
-        Self(value)
-    }
-}
-
 impl Duration {
     pub const fn from_seconds(secs: u32) -> Self {
         Self(secs)
@@ -184,6 +176,18 @@ impl Duration {
 
     pub const fn as_seconds(&self) -> u32 {
         self.0
+    }
+}
+
+impl From<u32> for Duration {
+    fn from(value: u32) -> Self {
+        Self(value)
+    }
+}
+
+impl Display for Duration {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("{}s", self.as_seconds()))
     }
 }
 

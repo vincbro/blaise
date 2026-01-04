@@ -12,10 +12,10 @@ pub struct AreaDto {
 }
 
 impl AreaDto {
-    pub fn from(area: &Area, repo: &Repository) -> Self {
+    pub fn from(area: &Area, repository: &Repository) -> Self {
         let id = area.id.to_string();
         let name = area.name.to_string();
-        let coordinate: Coordinate = repo
+        let coordinate: Coordinate = repository
             .stops_by_area_id(&area.id)
             .unwrap()
             .into_iter()

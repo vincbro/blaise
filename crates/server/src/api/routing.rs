@@ -1,11 +1,12 @@
 use axum::{
+    Json,
     extract::{Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
 };
 use ontrack::{
-    repository::{Repository, StopTime},
-    router::{Parent, graph::Location},
+    repository::Repository,
+    router::{itinerary::LegType, location::Location},
     shared::{geo::Coordinate, time::Time},
 };
 use std::{
@@ -14,7 +15,7 @@ use std::{
     sync::Arc,
 };
 
-use crate::state::AppState;
+use crate::{dto::ItineraryDto, state::AppState};
 
 pub async fn routing(
     Query(params): Query<HashMap<String, String>>,
@@ -35,37 +36,59 @@ pub async fn routing(
         .repository
         .router(from, to)
         .departure_at(Time::from_hms("16:00:00").unwrap());
-    let path = router.solve().unwrap();
-    println!("Length: {}", path.len());
-    let mut last: Option<Parent> = path.first().cloned();
-    for parent in path {
-        println!("TRANSFER!");
-        if let Some(last) = last
-            && let Some(trip_idx) = last.trip_idx
+    let itinerary = router.solve().unwrap();
+    itinerary.legs.iter().for_each(|leg| {
+        let leg_type = leg_type_str(&leg.leg_type);
+        if let Location::Stop(from_stop) = &leg.from
+            && let Location::Stop(to_stop) = &leg.to
         {
-            let trip = &state.repository.trips[trip_idx as usize];
-            let stop_times = &state.repository.stop_times_by_trip_id(&trip.id).unwrap();
-            let mut on_trip = false;
-            for i in 0..stop_times.len() {
-                if stop_times[i].stop_idx == last.from_stop_idx && !on_trip {
-                    on_trip = true;
+            let from = state.repository.stop_by_id(from_stop).unwrap();
+            let to = state.repository.stop_by_id(to_stop).unwrap();
+            println!(
+                "{leg_type} {} -> {} @ {} -> {}",
+                from.name,
+                to.name,
+                leg.departue_time.to_hms_string(),
+                leg.arrival_time.to_hms_string()
+            );
+            leg.stops.iter().for_each(|leg_stop| {
+                if let Location::Stop(stop_id) = &leg_stop.location {
+                    let stop = state.repository.stop_by_id(stop_id).unwrap();
+                    println!(
+                        "| {} @ {} -> {}",
+                        stop.name,
+                        leg_stop.arrival_time.to_hms_string(),
+                        leg_stop.departure_time.to_hms_string(),
+                    );
                 }
-
-                let stop = &state.repository.stops[stop_times[i].stop_idx as usize];
-                if on_trip {
-                    println!("{}", stop.name);
-                }
-
-                if stop_times[i].stop_idx == parent.from_stop_idx && on_trip {
-                    break;
-                }
-            }
+            });
+        } else if let Location::Coordinate(from_coord) = &leg.from
+            && let Location::Stop(to_stop) = &leg.to
+        {
+            let to = state.repository.stop_by_id(to_stop).unwrap();
+            println!(
+                "{leg_type} {} -> {} @ {} -> {}",
+                from_coord,
+                to.name,
+                leg.departue_time.to_hms_string(),
+                leg.arrival_time.to_hms_string(),
+            );
+        } else if let Location::Stop(from_stop) = &leg.from
+            && let Location::Coordinate(to_coord) = &leg.to
+        {
+            let from = state.repository.stop_by_id(from_stop).unwrap();
+            println!(
+                "{leg_type} {} -> {} @ {} -> {}",
+                from.name,
+                to_coord,
+                leg.departue_time.to_hms_string(),
+                leg.arrival_time.to_hms_string()
+            );
         }
-
-        last = Some(parent);
-    }
-    // Ok(Json(ItineraryDto::from(itinerary, &state.repo)).into_response())
-    Ok("HELLO".into_response())
+    });
+    let dto = ItineraryDto::from(itinerary, &state.repository)
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(dto).into_response())
 }
 
 fn location_from_str(repo: &Repository, str: &str) -> Result<Location, StatusCode> {
@@ -74,5 +97,13 @@ fn location_from_str(repo: &Repository, str: &str) -> Result<Location, StatusCod
         Ok(coordinate.into())
     } else {
         Ok(repo.area_by_id(str).ok_or(StatusCode::BAD_REQUEST)?.into())
+    }
+}
+
+fn leg_type_str(parent_type: &LegType) -> String {
+    match parent_type {
+        LegType::Transit => "Travel".into(),
+        LegType::Transfer => "Transfer".into(),
+        LegType::Walk => "Walk".into(),
     }
 }

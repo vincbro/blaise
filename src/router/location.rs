@@ -26,3 +26,21 @@ impl From<Coordinate> for Location {
         Self::Coordinate(value)
     }
 }
+
+#[derive(Debug, Clone, Copy)]
+pub enum Point {
+    Coordinate(Coordinate),
+    Stop(u32),
+}
+
+impl From<u32> for Point {
+    fn from(value: u32) -> Self {
+        Self::Stop(value)
+    }
+}
+
+impl From<Coordinate> for Point {
+    fn from(value: Coordinate) -> Self {
+        Self::Coordinate(value)
+    }
+}

@@ -6,7 +6,7 @@ use rayon::prelude::*;
 
 use crate::{
     gtfs,
-    router::{Router, graph::Location},
+    router::{Raptor, location::Location},
     shared::{
         self,
         geo::{AVERAGE_STOP_DISTANCE, Coordinate, Distance},
@@ -562,7 +562,7 @@ impl Repository {
         shared::search(needle, &self.stops)
     }
 
-    pub fn router(&'_ self, from: Location, to: Location) -> Router<'_> {
-        Router::new(self, from, to)
+    pub fn router(&'_ self, from: Location, to: Location) -> Raptor<'_> {
+        Raptor::new(self, from, to)
     }
 }
