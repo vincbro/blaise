@@ -15,7 +15,7 @@ While On Track is a Rust library, we provide a server for projects that cannot d
 
 The On Track Server wraps the library's performance in a ready-to-use HTTP API, supporting search, proximity queries, and routing out of the box.
 
-[Read more]("/crates/server/README.md")
+[Read more](./crates/server/README.md)
 
 ## Installation
 
