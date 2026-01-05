@@ -4,22 +4,22 @@
 [![Documentation](https://docs.rs/ontrack/badge.svg)](https://docs.rs/ontrack)
 [![License](https://img.shields.io/crates/l/ontrack.svg)](LICENSE)
 
-On Track is a high-performance Rust library designed to make transit data easy to work with.
+Ontrack is a high-performance Rust library designed to make transit data easy to work with.
 It handles the heavy lifting of loading, searching, and routing through GTFS transit schedules so you can focus on building your application.
 
 > [!NOTE]
 > This project is early in development, if you like the idea and want to help improve it, please open an issue.
 
 ## Server
-While On Track is a Rust library, we provide a server for projects that cannot directly integrate with the Rust crate.
+While Ontrack is a Rust library, we provide a server for projects that cannot directly integrate with the Rust crate.
 
-The On Track Server wraps the library's performance in a ready-to-use HTTP API, supporting search, proximity queries, and routing out of the box.
+The Ontrack server wraps the library's performance in a ready-to-use HTTP API, supporting search, proximity queries, and routing out of the box.
 
 [Read more](./crates/server/README.md)
 
 ## Installation
 
-Add On Track to your Cargo.toml:
+Add Ontrack to your Cargo.toml:
 ```bash
 cargo add ontrack
 ```
