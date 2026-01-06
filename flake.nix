@@ -22,6 +22,7 @@
           pkgs.openssl
           pkgs.nodePackages.vscode-json-languageserver
           pkgs.taplo
+          pkgs.dockerfile-language-server
         ];
 
         shellHook = ''

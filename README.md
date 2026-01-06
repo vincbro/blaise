@@ -33,8 +33,8 @@ use ontrack::router::{Raptor, graph::Location};
 use ontrack::shared::{time::Time, geo::Coordinate};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let gtfs = Gtfs::new(Config::default()).from_zip("transit_data.zip")?;
-    let repo = Repository::new().with_gtfs(gtfs)?;
+    let data = Gtfs::new().from_zip("transit_data.zip")?;
+    let repo = Repository::new().load_gtfs(data)?;
 
     let from = Location::Stop("STOP_ID_1".into());
     let to = Location::Coordinate(Coordinate { latitude: 59.3, longitude: 18.0 });

@@ -38,11 +38,13 @@ pub struct Gtfs {
 }
 
 impl Gtfs {
-    pub fn new(config: self::Config) -> Self {
-        Self {
-            config,
-            storage: Default::default(),
-        }
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_config(mut self, config: Config) -> Self {
+        self.config = config;
+        self
     }
 
     pub fn from_zip<P: AsRef<Path>>(mut self, path: P) -> Result<Self, self::Error> {
