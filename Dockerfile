@@ -1,4 +1,5 @@
 FROM rust:1.92-bullseye AS builder
+WORKDIR /usr/src/ontrack
 
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src 
