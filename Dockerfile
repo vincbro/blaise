@@ -1,7 +1,16 @@
+# ... (after your FROM statement)
+# ...
 
 # BUILD
 FROM rust:1.92-bullseye AS builder
 WORKDIR /usr/src/blaise
+
+# METADATA
+LABEL org.opencontainers.image.title="Blaise Server"
+LABEL org.opencontainers.image.description="An easy-to-use, fully local engine for public transit data with a strong focus on performance."
+LABEL org.opencontainers.image.authors="Vincent Brodin"
+LABEL org.opencontainers.image.source="https://github.com/VincentBrodin/blaise"
+LABEL org.opencontainers.image.licenses="MIT"
 
 # Copy lib
 COPY Cargo.toml Cargo.lock ./
