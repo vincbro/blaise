@@ -1,36 +1,51 @@
-![ontrack](./assets/ontrack.png)
+![blaise](./assets/blaise.png)
 
-[![Crates.io](https://img.shields.io/crates/v/ontrack.svg)](https://crates.io/crates/ontrack)
-[![Documentation](https://docs.rs/ontrack/badge.svg)](https://docs.rs/ontrack)
-[![License](https://img.shields.io/crates/l/ontrack.svg)](LICENSE)
 
-Ontrack is a high-performance Rust library designed to make transit data easy to work with.
-It handles the heavy lifting of loading, searching, and routing through GTFS transit schedules so you can focus on building your application.
+[![Crates.io](https://img.shields.io/crates/v/blaise.svg)](https://crates.io/crates/blaise)
+[![Documentation](https://docs.rs/blaise/badge.svg)](https://docs.rs/blaise)
+[![License](https://img.shields.io/crates/l/blaise.svg)](LICENSE)
+
+
+*blaise* (/blɛz/) named after Blaise Pascal,
+a French mathematician and physicist who created the
+first public transit system in Paris in 1662 called the Carrosses à cinq sols.
+
+
+*blaise* is an easy to use, fully local engine for public transit data with a strong focus on performance.
+It handles the heavy lifting of loading, searching, and routing through GTFS transit schedules so you can focus on building your application without relying on external APIs.
+
+
+Designed to be a complete local solution, *blaise* supports:
+    - **Fast routing**: Efficient schedule based pathfinding using a optimized version of the RAPTOR algorithm.
+    - **Fuzzy search**: Easily find stops and areas even with partial or imperfect names.
+    - **Geospatial search**: Discover transit options based on geographic coordinates.
+
 
 > [!NOTE]
 > This project is early in development, if you like the idea and want to help improve it, please open an issue.
 
-## Server
-While Ontrack is a Rust library, we provide a server for projects that cannot directly integrate with the Rust crate.
 
-The Ontrack server wraps the library's performance in a ready-to-use HTTP API, supporting search, proximity queries, and routing out of the box.
+## Server
+While *blaise* is a library, we provide a server for projects that cannot directly integrate with the Rust crate.
+The *blaise* server wraps this functionality in a ready to use REST API, supporting search, proximity queries, and routing out of the box.
+
 
 [Read more](./crates/server/README.md)
 
 ## Installation
 
-Add Ontrack to your Cargo.toml:
+Add *blaise* to your Cargo.toml:
 ```bash
-cargo add ontrack
+cargo add blaise
 ```
 
 ## Quick Start
 
 ```rust
-use ontrack::gtfs::{Gtfs, Config};
-use ontrack::repository::Repository;
-use ontrack::router::{Raptor, graph::Location};
-use ontrack::shared::{time::Time, geo::Coordinate};
+use blaise::gtfs::{Gtfs, Config};
+use blaise::repository::Repository;
+use blaise::router::{Raptor, graph::Location};
+use blaise::shared::{time::Time, geo::Coordinate};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let data = Gtfs::new().from_zip("transit_data.zip")?;

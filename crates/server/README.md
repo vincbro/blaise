@@ -1,10 +1,10 @@
-![ontrack](../../assets/ontrack.png)
+![blaise](../../assets/blaise.png)
 
-[![Crates.io](https://img.shields.io/crates/v/ontrack.svg)](https://crates.io/crates/ontrack)
-[![Documentation](https://docs.rs/ontrack/badge.svg)](https://docs.rs/ontrack)
-[![License](https://img.shields.io/crates/l/ontrack.svg)](LICENSE)
+[![Crates.io](https://img.shields.io/crates/v/blaise.svg)](https://crates.io/crates/blaise)
+[![Documentation](https://docs.rs/blaise/badge.svg)](https://docs.rs/blaise)
+[![License](https://img.shields.io/crates/l/blaise.svg)](LICENSE)
 
-Server built using the Ontrack library allowing anyone to integrate Ontrack into there own stack.
+Server built using the *blaise* library allowing anyone to integrate *blaise* into there own stack.
 
 > [!NOTE]
 > This project is early in development, if you like the idea and want to help improve it, please open an issue.
@@ -14,14 +14,14 @@ Server built using the Ontrack library allowing anyone to integrate Ontrack into
 ### Docker
 
 #### docker run
-Spin up a Ontrack instance quickly with docker run
+Spin up a *blaise* instance quickly with docker run
 ```bash
-docker run ontrack:vincentbrodin@latest
+docker run blaise:vincentbrodin@latest
 ```
 
 #### docker compose
 ```bash
-docker run ontrack:vincentbrodin@latest
+docker run blaise:vincentbrodin@latest
 ```
 
 ### Build from source
@@ -29,7 +29,7 @@ docker run ontrack:vincentbrodin@latest
 - cargo
 
 ```bash
-git clone https://github.com/VincentBrodin/ontrack.git
-cd ontrack
+git clone https://github.com/VincentBrodin/blaise.git
+cd blaise
 cargo build -r -p server
 ```

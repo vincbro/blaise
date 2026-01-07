@@ -1,9 +1,9 @@
-use std::cmp::Ordering;
-
-use rayon::prelude::*;
 pub(crate) mod fuzzy;
 pub mod geo;
 pub mod time;
+
+use rayon::prelude::*;
+use std::cmp::Ordering;
 
 pub trait Identifiable {
     fn id(&self) -> &str;

@@ -1,7 +1,3 @@
-use std::u32;
-
-use serde::{Deserialize, Serialize};
-
 use crate::{
     repository::{Area, LocationType, Route, Stop, StopAccessType, StopTime, Timepoint},
     shared::{
@@ -9,6 +5,7 @@ use crate::{
         time::Time,
     },
 };
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(deny_unknown_fields)]

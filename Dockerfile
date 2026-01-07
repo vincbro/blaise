@@ -1,7 +1,7 @@
 
 # BUILD
 FROM rust:1.92-bullseye AS builder
-WORKDIR /usr/src/ontrack
+WORKDIR /usr/src/blaise
 
 # Copy lib
 COPY Cargo.toml Cargo.lock ./
@@ -22,11 +22,11 @@ FROM debian:bookworm-slim
 WORKDIR /app
 
 # Copy build output
-COPY --from=builder /usr/src/ontrack/target/release/ontrack-server /usr/local/bin/
+COPY --from=builder /usr/src/blaise/target/release/blaise-server /usr/local/bin/
 
 EXPOSE 3000
 
 # ENV
 ENV GTFS_DATA_PATH=/app/GTFS.zip
 
-ENTRYPOINT ["ontrack-server"]
+ENTRYPOINT ["blaise-server"]

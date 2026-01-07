@@ -3,16 +3,13 @@ pub mod source;
 
 pub use models::*;
 use rayon::prelude::*;
-use std::{collections::HashMap, sync::Arc, time::Instant};
-use tracing::debug;
+use std::{collections::HashMap, sync::Arc};
 
 use crate::{
-    gtfs,
     router::{Raptor, location::Location},
     shared::{
         self,
         geo::{AVERAGE_STOP_DISTANCE, Coordinate, Distance},
-        time::Duration,
     },
 };
 

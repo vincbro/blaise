@@ -1,4 +1,4 @@
-use ontrack::{
+use blaise::{
     repository::{Area, Repository},
     shared::geo::Coordinate,
 };

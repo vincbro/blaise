@@ -1,4 +1,5 @@
-use ontrack::{
+use crate::dto::{AreaDto, stop::StopDto};
+use blaise::{
     repository::Repository,
     router::{
         itinerary::{Itinerary, Leg, LegStop, LegType},
@@ -7,8 +8,6 @@ use ontrack::{
     shared::{geo::Coordinate, time::Time},
 };
 use serde::{Deserialize, Serialize};
-
-use crate::dto::{AreaDto, stop::StopDto};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum LocationDto {

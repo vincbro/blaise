@@ -149,6 +149,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "812e12b5285cc515a9c72a5c1d3b6d46a19dac5acfef5265968c166106e31dd3"
 
 [[package]]
+name = "blaise"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "csv",
+ "rayon",
+ "serde",
+ "thiserror 2.0.17",
+ "tracing",
+ "zip",
+]
+
+[[package]]
 name = "block-buffer"
 version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1086,19 +1099,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42f5e15c9953c5e4ccceeb2e7382a716482c34515315f7b03532b8b4e8393d2d"
 
 [[package]]
-name = "ontrack"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "csv",
- "rayon",
- "serde",
- "thiserror 2.0.17",
- "tracing",
- "zip",
-]
-
-[[package]]
 name = "openssl-probe"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1595,8 +1595,8 @@ name = "server"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "blaise",
  "futures-util",
- "ontrack",
  "reqwest",
  "serde",
  "tokio",

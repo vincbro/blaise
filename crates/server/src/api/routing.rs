@@ -4,7 +4,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use ontrack::{
+use blaise::{
     repository::Repository,
     router::{Raptor, itinerary::LegType, location::Location},
     shared::{geo::Coordinate, time::Time},
@@ -87,7 +87,7 @@ pub async fn routing(
             }
         });
         let dto =
-            ItineraryDto::from(itinerary, &repository).ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+            ItineraryDto::from(itinerary, repository).ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
         Ok(Json(dto).into_response())
     } else {
         warn!("Missing repository");

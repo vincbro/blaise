@@ -1,3 +1,8 @@
+mod config;
+pub mod models;
+
+pub use config::*;
+use models::*;
 use serde::de::DeserializeOwned;
 use std::{
     fs::File,
@@ -6,11 +11,6 @@ use std::{
 };
 use thiserror::Error;
 use zip::{ZipArchive, read::ZipFile};
-
-mod config;
-pub mod models;
-pub use config::*;
-use models::*;
 
 #[derive(Error, Debug)]
 pub enum Error {

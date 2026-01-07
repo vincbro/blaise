@@ -1,7 +1,3 @@
-use std::sync::Arc;
-
-use serde::Serialize;
-
 use crate::{
     repository::Repository,
     router::{
@@ -10,6 +6,7 @@ use crate::{
     },
     shared::time::Time,
 };
+use serde::Serialize;
 
 #[derive(Debug, Clone)]
 pub struct Leg {
