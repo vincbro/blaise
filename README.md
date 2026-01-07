@@ -6,7 +6,7 @@
 [![License](https://img.shields.io/crates/l/blaise.svg)](LICENSE)
 
 
-*blaise* (/blɛz/) named after Blaise Pascal,
+*blaise* (/blɛz/) named after **Blaise Pascal**,
 a French mathematician and physicist who created the
 first public transit system in Paris in 1662 called the Carrosses à cinq sols.
 

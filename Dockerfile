@@ -19,6 +19,9 @@ RUN cargo build -r -p server
 
 FROM debian:bookworm-slim
 
+# Install CA certificates
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # Copy build output

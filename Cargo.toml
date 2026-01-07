@@ -1,13 +1,26 @@
 [package]
 version = "0.1.0"
 name = "blaise"
-description = "High-performance Rust library for routing, searching, and querying GTFS transit data with minimal runtime allocations."
+description = "A fast, local-first engine for GTFS transit data. Handles routing, fuzzy search, and geospatial queries without relying on external APIs."
 authors = ["Vincent Brodin <vincent.brodin21@gmail.com>"]
 license = "MIT"
 readme = "README.md"
 repository = "https://github.com/VincentBrodin/blaise"
 edition = "2024"
-keywords = ["SDK", "SL", "ResRobot", "GTFS"]
+keywords = [
+  "transit",
+  "rust",
+  "high-performance",
+  "geospatial",
+  "fuzzy-search",
+  "gtfs",
+  "routing-engine",
+  "mobility",
+  "raptor",
+  "public-transport",
+  "multi-threaded",
+  "blaise",
+]
 
 [workspace]
 members = ["crates/server"]
