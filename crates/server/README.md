@@ -59,7 +59,7 @@ cargo build -r -p server
 ### /search
 Perform a fuzzy search for transit areas by name.
 
-**Example Request** `GET` `/near?q=S:t Eriksplan`
+**Example Request** `GET` `/search?q=S:t Eriksplan`
 - `q`: **[REQUIRED]** The search query (e.g., "S:t Eriksplan")..
 - `count`: Max results to return (Defaults to 5)..
 
