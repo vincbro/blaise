@@ -7,13 +7,16 @@ use axum::routing::get;
 use blaise::{gtfs::Gtfs, repository::Repository};
 use std::{env, path::Path, process, sync::Arc, time::Instant};
 use tokio::sync::RwLock;
-use tracing::{error, info, warn};
+use tracing::{error, info, instrument::WithSubscriber, warn};
 
 const PORT: u32 = 3000;
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt().init();
+    tracing_subscriber::fmt()
+        .with_line_number(true)
+        .with_thread_ids(true)
+        .init();
 
     let start_logo = include_str!("../start_logo.txt");
     println!("{}", start_logo);

@@ -16,6 +16,7 @@ use crate::{
 };
 use rayon::prelude::*;
 use thiserror::Error;
+use tracing::debug;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -113,7 +114,7 @@ impl<'a> Raptor<'a> {
             state.parents.push(vec![None; self.repository.stops.len()]);
 
             let marked_stops = state.marked_stops();
-            println!("Got {} marked stops", marked_stops.len());
+            debug!("Got {} marked stops", marked_stops.len());
             // If we don't improve we have found th
             if marked_stops.is_empty() {
                 break;
@@ -279,12 +280,11 @@ impl<'a> Raptor<'a> {
                 });
             round += 1;
         }
-        println!("DONE WITH {round} ROUNDS");
 
         if let Some(target_stop) = target_best_stop
             && let Some(target_round) = target_best_round
         {
-            let path = self.backtrack(state.parents, to_coord, target_stop, target_round);
+            let path = self.backtrack(state.parents, to_coord, target_stop, target_round)?;
             Ok(Itinerary::new(self.from, self.to, path, self.repository))
         } else {
             Err(self::Error::FailedToBuildRoute)
@@ -297,7 +297,7 @@ impl<'a> Raptor<'a> {
         to_coord: Coordinate,
         target_stop: usize,
         target_round: usize,
-    ) -> Vec<Parent> {
+    ) -> Result<Vec<Parent>, self::Error> {
         let mut path: Vec<Parent> = Vec::new();
 
         let mut current_point: Point = (target_stop as u32).into();
@@ -315,8 +315,7 @@ impl<'a> Raptor<'a> {
                     break;
                 }
             } else {
-                println!("FAILE TO BACKTRACK");
-                break;
+                return Err(Error::FailedToBuildRoute);
             }
         }
         path.reverse();
@@ -353,7 +352,7 @@ impl<'a> Raptor<'a> {
                 }
             }
         }
-        path
+        Ok(path)
     }
 
     fn coordinate(&self, location: &Location) -> Result<Coordinate, self::Error> {
