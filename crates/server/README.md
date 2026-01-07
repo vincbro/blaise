@@ -111,7 +111,7 @@ A `location` can be a coordinate or a area `id`
 **Example Request** `GET` `/routing?from=59.330569, 18.059278&to=740021665`
 - `from`: **[REQUIRED]** Starting point (Area ID or lat,lng coordinate)..
 - `to`: **[REQUIRED]** Destination (Area ID or lat,lng coordinate)..
-- `departure_at`: Time to start the departure in hms format `HH:MM:SS` `16:15:37` (Defaults to current system time).
+- `departure_at`: Departure time in hms format `HH:MM:SS` `16:15:37` (Defaults to current system time).
 
 **Output**
 ```json

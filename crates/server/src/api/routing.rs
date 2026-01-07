@@ -33,8 +33,13 @@ pub async fn routing(
             return Err(StatusCode::BAD_REQUEST);
         };
 
-        let raptor =
-            Raptor::new(repository, from, to).departure_at(Time::from_hms("16:00:00").unwrap());
+        let departure_at = if let Some(departure_at) = params.get("departure_at") {
+            Time::from_hms(departure_at).ok_or(StatusCode::BAD_REQUEST)?
+        } else {
+            Time::now()
+        };
+
+        let raptor = Raptor::new(repository, from, to).departure_at(departure_at);
         let itinerary = raptor.solve().unwrap();
         itinerary.legs.iter().for_each(|leg| {
             let leg_type = leg_type_str(&leg.leg_type);
