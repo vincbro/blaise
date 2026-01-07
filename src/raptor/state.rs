@@ -1,4 +1,4 @@
-use crate::{repository::Repository, router::location::Point, shared::time::Time};
+use crate::{raptor::location::Point, repository::Repository, shared::time::Time};
 use rayon::prelude::*;
 
 #[derive(Debug, Clone, Copy)]

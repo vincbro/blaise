@@ -6,7 +6,7 @@ use rayon::prelude::*;
 use std::{collections::HashMap, sync::Arc};
 
 use crate::{
-    router::{Raptor, location::Location},
+    raptor::{Raptor, location::Location},
     shared::{
         self,
         geo::{AVERAGE_STOP_DISTANCE, Coordinate, Distance},

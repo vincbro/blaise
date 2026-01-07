@@ -1,10 +1,10 @@
 use crate::dto::{AreaDto, stop::StopDto};
 use blaise::{
-    repository::Repository,
-    router::{
+    raptor::{
         itinerary::{Itinerary, Leg, LegStop, LegType},
         location::Location,
     },
+    repository::Repository,
     shared::{geo::Coordinate, time::Time},
 };
 use serde::{Deserialize, Serialize};

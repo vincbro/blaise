@@ -1,3 +1,4 @@
+use crate::{dto::ItineraryDto, state::AppState};
 use axum::{
     Json,
     extract::{Query, State},
@@ -5,8 +6,8 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use blaise::{
+    raptor::{Raptor, itinerary::LegType, location::Location},
     repository::Repository,
-    router::{Raptor, itinerary::LegType, location::Location},
     shared::{geo::Coordinate, time::Time},
 };
 use std::{
@@ -15,8 +16,6 @@ use std::{
     sync::Arc,
 };
 use tracing::warn;
-
-use crate::{dto::ItineraryDto, state::AppState};
 
 pub async fn routing(
     Query(params): Query<HashMap<String, String>>,

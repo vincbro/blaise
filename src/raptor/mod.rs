@@ -3,12 +3,12 @@ pub mod location;
 pub mod state;
 
 use crate::{
-    repository::{RaptorRoute, Repository, Stop, Transfer, Trip},
-    router::{
+    raptor::{
         itinerary::Itinerary,
         location::{Location, Point},
         state::{Parent, State, Update},
     },
+    repository::{RaptorRoute, Repository, Stop, Transfer, Trip},
     shared::{
         geo::{Coordinate, Distance},
         time::{Duration, Time},
