@@ -16,9 +16,10 @@ It handles the heavy lifting of loading, searching, and routing through GTFS tra
 
 
 Designed to be a complete local solution, *blaise* supports:
-    - **Fast routing**: Efficient schedule based pathfinding using a optimized version of the RAPTOR algorithm.
-    - **Fuzzy search**: Easily find stops and areas even with partial or imperfect names.
-    - **Geospatial search**: Discover transit options based on geographic coordinates.
+
+- **Fast routing**: Efficient schedule based pathfinding using a optimized version of the RAPTOR algorithm.
+- **Fuzzy search**: Easily find stops and areas even with partial or imperfect names.
+- **Geospatial search**: Discover transit options based on geographic coordinates.
 
 
 > [!NOTE]
