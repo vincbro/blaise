@@ -9,17 +9,10 @@ repository = "https://github.com/VincentBrodin/blaise"
 edition = "2024"
 keywords = [
   "transit",
-  "rust",
-  "high-performance",
-  "geospatial",
-  "fuzzy-search",
   "gtfs",
   "routing-engine",
-  "mobility",
   "raptor",
   "public-transport",
-  "multi-threaded",
-  "blaise",
 ]
 
 [workspace]
