@@ -6,7 +6,6 @@ services:
       - "3000:3000"
     environment:
       - GTFS_DATA_PATH=/app/data/GTFS.zip
-      - RUST_LOG=info
     volumes:
       - ./gtfs_data:/app/data
     restart: unless-stopped
