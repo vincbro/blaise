@@ -1,3 +1,8 @@
+mod config;
+pub mod models;
+
+pub use config::*;
+use models::*;
 use serde::de::DeserializeOwned;
 use std::{
     fs::File,
@@ -6,11 +11,6 @@ use std::{
 };
 use thiserror::Error;
 use zip::{ZipArchive, read::ZipFile};
-
-mod config;
-pub mod models;
-pub use config::*;
-use models::*;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -38,11 +38,13 @@ pub struct Gtfs {
 }
 
 impl Gtfs {
-    pub fn new(config: self::Config) -> Self {
-        Self {
-            config,
-            storage: Default::default(),
-        }
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_config(mut self, config: Config) -> Self {
+        self.config = config;
+        self
     }
 
     pub fn from_zip<P: AsRef<Path>>(mut self, path: P) -> Result<Self, self::Error> {

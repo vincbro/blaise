@@ -84,11 +84,15 @@ pub enum StopAccessType {
 
 #[derive(Debug, Default, Clone)]
 pub struct StopTime {
+    pub index: u32,
     pub trip_idx: u32,
     pub trip_id: Arc<str>,
     pub stop_idx: u32,
     pub stop_id: Arc<str>,
     pub sequence: u16,
+    // Allows us to run to lookup the next stop time in trip by start_idx+internal_idx+1
+    pub start_idx: u32,
+    pub internal_idx: u32,
     // Seconds since midnight
     pub arrival_time: Time,
     // Seconds since midnight
@@ -119,6 +123,30 @@ pub struct Transfer {
 pub struct Trip {
     pub index: u32,
     pub id: Arc<str>,
+    pub route_id: Arc<str>,
+    pub route_index: u32,
+    pub raptor_route_index: u32,
     pub headsign: Option<Arc<str>>,
     pub short_name: Option<Arc<str>>,
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct Route {
+    pub index: u32,
+    pub id: Arc<str>,
+    pub agency_id: Arc<str>,
+    pub route_short_name: Option<Arc<str>>,
+    pub route_long_name: Option<Arc<str>>,
+    pub route_type: i32,
+    pub route_desc: Option<Arc<str>>,
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct RaptorRoute {
+    pub index: u32,
+    pub route_index: u32,
+    pub route_id: Arc<str>,
+
+    pub stops: Arc<[u32]>,
+    pub trips: Arc<[u32]>,
 }

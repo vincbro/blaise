@@ -1,7 +1,18 @@
-use std::ops::{Add, AddAssign, Sub, SubAssign};
+use chrono::{Local, Timelike};
+use serde::{Deserialize, Serialize};
+use std::{
+    fmt::Display,
+    ops::{Add, AddAssign, Sub, SubAssign},
+};
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Time(u32);
+
+impl From<u32> for Time {
+    fn from(value: u32) -> Self {
+        Self(value)
+    }
+}
 
 impl Sub<Time> for Time {
     type Output = Duration;
@@ -40,6 +51,11 @@ impl AddAssign<Duration> for Time {
 }
 
 impl Time {
+    pub fn now() -> Self {
+        let now = Local::now();
+        Self(now.num_seconds_from_midnight())
+    }
+
     pub const fn from_seconds(secs: u32) -> Self {
         Self(secs)
     }
@@ -160,6 +176,18 @@ impl Duration {
 
     pub const fn as_seconds(&self) -> u32 {
         self.0
+    }
+}
+
+impl From<u32> for Duration {
+    fn from(value: u32) -> Self {
+        Self(value)
+    }
+}
+
+impl Display for Duration {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("{}s", self.as_seconds()))
     }
 }
 

@@ -1,28 +1,43 @@
 [package]
-version = "0.0.6"
-name = "ontrack"
-description = "High-performance Rust library for routing, searching, and querying GTFS transit data with minimal runtime allocations."
+version = "0.1.1"
+name = "blaise"
+description = "A fast, local-first engine for GTFS transit data. Handles routing, fuzzy search, and geospatial queries without relying on external APIs."
 authors = ["Vincent Brodin <vincent.brodin21@gmail.com>"]
 license = "MIT"
 readme = "README.md"
-repository = "https://github.com/VincentBrodin/ontrack"
+repository = "https://github.com/VincentBrodin/blaise"
 edition = "2024"
-keywords = ["SDK", "SL", "ResRobot", "GTFS"]
+keywords = [
+  "transit",
+  "rust",
+  "high-performance",
+  "geospatial",
+  "fuzzy-search",
+  "gtfs",
+  "routing-engine",
+  "mobility",
+  "raptor",
+  "public-transport",
+  "multi-threaded",
+  "blaise",
+]
 
 [workspace]
 members = ["crates/server"]
 resolver = "1"
 
 [workspace.dependencies]
-ontrack = { path = "." }
+blaise = { path = "." }
 
 [features]
 
 [dependencies]
+chrono = "0.4.42"
 csv = "1.4.0"
 rayon = "1.11.0"
 serde = { version = "1.0.228", features = ["derive"] }
 thiserror = "2.0.17"
+tracing = "0.1.44"
 zip = "6.0.0"
 
 [dev-dependencies]

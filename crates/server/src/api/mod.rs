@@ -1,5 +1,7 @@
+mod gtfs;
 mod routing;
-pub use routing::*;
-
 mod search;
+
+pub use gtfs::*;
+pub use routing::*;
 pub use search::*;

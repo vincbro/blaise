@@ -57,6 +57,12 @@ impl Div for Distance {
     }
 }
 
+impl From<f32> for Distance {
+    fn from(value: f32) -> Self {
+        Distance(value)
+    }
+}
+
 impl Distance {
     pub const fn from_meters(distance: f32) -> Self {
         Self(distance)
@@ -178,13 +184,13 @@ impl Coordinate {
 #[test]
 fn distance_test() {
     let coord_a = Coordinate {
-        latitude: 48.85800943005911,
-        longitude: 2.3514350059357927,
+        latitude: 48.858_01,
+        longitude: 2.351_435,
     };
 
     let coord_b = Coordinate {
-        latitude: 51.5052389927712,
-        longitude: -0.12495407345099824,
+        latitude: 51.505_238,
+        longitude: -0.124_954_075,
     };
     let d = coord_a.euclidean_distance(&coord_b);
     assert!((d.as_kilometers() - 343_000.0).abs() > 500.0);
