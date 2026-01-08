@@ -18,7 +18,7 @@ type IdToIndex = HashMap<Arc<str>, usize>;
 type IdToIndexes = HashMap<Arc<str>, Box<[usize]>>;
 type IdToId = HashMap<Arc<str>, Arc<str>>;
 type IdToIds = HashMap<Arc<str>, Box<[Arc<str>]>>;
-type CellToIds = HashMap<(i32, i32), Box<[Arc<str>]>>;
+type CellToIdx = HashMap<(i32, i32), Box<[u32]>>;
 
 #[derive(Debug, Clone, Default)]
 pub struct Repository {
@@ -32,7 +32,7 @@ pub struct Repository {
 
     // GTFS lookup
     stop_lookup: Arc<IdToIndex>,
-    stop_distance_lookup: Arc<CellToIds>,
+    stop_distance_lookup: Arc<CellToIdx>,
     area_lookup: Arc<IdToIndex>,
     route_lookup: Arc<IdToIndex>,
     route_to_trips: Arc<IdToIds>,
@@ -188,9 +188,9 @@ impl Repository {
     /// If no trip was found with the given id None is returned.
     pub fn stop_times_by_trip_id(&self, trip_id: &str) -> Option<&[StopTime]> {
         let slice = self.trip_to_stop_times.get(trip_id)?;
-        return Some(
-            &self.stop_times[slice.start_idx as usize..(slice.start_idx + slice.count) as usize],
-        );
+        let start = slice.start_idx as usize;
+        let end = start + slice.count as usize;
+        Some(&self.stop_times[start..end])
     }
 
     /// Returns stops near there within the coordinates.
@@ -207,9 +207,12 @@ impl Repository {
                             stop_ids
                                 .iter()
                                 .filter_map(|stop_id| {
-                                    self.stop_by_id(stop_id).filter(|stop| {
-                                        stop.coordinate.network_distance(coordinate) <= distance
-                                    })
+                                    let stop = &self.stops[*stop_id as usize];
+                                    if stop.coordinate.network_distance(coordinate) <= distance {
+                                        Some(stop)
+                                    } else {
+                                        None
+                                    }
                                 })
                                 .collect::<Vec<_>>()
                         } else {

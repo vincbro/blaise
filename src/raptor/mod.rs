@@ -413,17 +413,17 @@ impl<'a> Raptor<'a> {
         Some(stop_times[index].departure_time)
     }
 
-    fn get_trip_time(&self, trip_id: &str, index: usize) -> Option<(Time, Time)> {
-        let stop_times = self.repository.stop_times_by_trip_id(trip_id)?;
-        if index >= stop_times.len() {
-            println!("Tried to get stop {index} in trip {trip_id}");
-            return None;
-        }
-        Some((
-            stop_times[index].departure_time,
-            stop_times[index].arrival_time,
-        ))
-    }
+    // fn get_trip_time(&self, trip_id: &str, index: usize) -> Option<(Time, Time)> {
+    //     let stop_times = self.repository.stop_times_by_trip_id(trip_id)?;
+    //     if index >= stop_times.len() {
+    //         println!("Tried to get stop {index} in trip {trip_id}");
+    //         return None;
+    //     }
+    //     Some((
+    //         stop_times[index].departure_time,
+    //         stop_times[index].arrival_time,
+    //     ))
+    // }
 
     fn get_transfers(&self, index: usize) -> Option<Vec<&Transfer>> {
         let stop = &self.repository.stops[index];

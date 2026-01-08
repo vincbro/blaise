@@ -1,7 +1,7 @@
 use crate::{
     gtfs::{self, Gtfs},
     repository::{
-        Area, CellToIds, IdToId, IdToIds, IdToIndex, IdToIndexes, RaptorRoute, Repository, Route,
+        Area, CellToIdx, IdToId, IdToIds, IdToIndex, IdToIndexes, RaptorRoute, Repository, Route,
         Stop, StopTime, StopTimeSlice, Transfer, Trip,
     },
     shared::time::Duration,
@@ -266,6 +266,7 @@ impl Repository {
         buffer.par_sort_by_key(|val| val.sequence);
         buffer.iter_mut().enumerate().for_each(|(j, st)| {
             st.internal_idx = j as u32;
+            st.slice = stop_time_slice;
             st.index = st.slice.start_idx + st.internal_idx;
         });
         stop_times.append(&mut buffer);
@@ -289,7 +290,7 @@ impl Repository {
         // to its nearby stops, we are going to map each stop with trips into a grid
         debug!("Generating geo spatial hash...");
         let now = Instant::now();
-        let mut stop_distance_lookup: HashMap<(i32, i32), Vec<Arc<str>>> = HashMap::new();
+        let mut stop_distance_lookup: HashMap<(i32, i32), Vec<u32>> = HashMap::new();
         self.stops
             .iter()
             // .filter(|stop| self.trips_by_stop_id(&stop.id).is_some())
@@ -298,9 +299,9 @@ impl Repository {
                 stop_distance_lookup
                     .entry(cell)
                     .or_default()
-                    .push(stop.id.clone());
+                    .push(stop.index);
             });
-        let stop_distance_lookup: CellToIds = stop_distance_lookup
+        let stop_distance_lookup: CellToIdx = stop_distance_lookup
             .into_iter()
             .map(|(cell, stops)| (cell, stops.into()))
             .collect();

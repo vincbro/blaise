@@ -7,7 +7,7 @@ use axum::routing::get;
 use blaise::{gtfs::Gtfs, repository::Repository};
 use std::{env, path::Path, process, sync::Arc, time::Instant};
 use tokio::sync::RwLock;
-use tracing::{error, info, instrument::WithSubscriber, warn};
+use tracing::{error, info, warn};
 
 const PORT: u32 = 3000;
 
