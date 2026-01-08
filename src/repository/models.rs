@@ -91,7 +91,7 @@ pub struct StopTime {
     pub stop_id: Arc<str>,
     pub sequence: u16,
     // Allows us to run to lookup the next stop time in trip by start_idx+internal_idx+1
-    pub start_idx: u32,
+    pub slice: StopTimeSlice,
     pub internal_idx: u32,
     // Seconds since midnight
     pub arrival_time: Time,
@@ -102,6 +102,12 @@ pub struct StopTime {
     pub pickup_type: StopAccessType,
     pub drop_off_type: StopAccessType,
     pub timepoint: Timepoint,
+}
+
+#[derive(Default, Debug, Clone, Copy)]
+pub struct StopTimeSlice {
+    pub start_idx: u32,
+    pub count: u32,
 }
 
 #[derive(Debug, Default, Clone)]

@@ -440,7 +440,7 @@ impl<'a> Raptor<'a> {
             .collect();
         let mut earliest: Option<(u32, Time)> = None;
         for stop_times in trips.into_iter() {
-            let stop_time = stop_times[index];
+            let stop_time = &stop_times[index];
             let departure_time = stop_time.departure_time;
             // Make sure we don't try to catch a trip that has already left
             if departure_time < time {

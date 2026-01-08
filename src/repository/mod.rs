@@ -42,7 +42,7 @@ pub struct Repository {
     stop_to_transfers: Arc<IdToIndexes>,
     stop_to_trips: Arc<IdToIds>,
     trip_lookup: Arc<IdToIndex>,
-    trip_to_stop_times: Arc<IdToIndexes>,
+    trip_to_stop_times: Arc<HashMap<Arc<str>, StopTimeSlice>>,
     // Raptor lookup
     route_to_raptors: Arc<IdToIndexes>,
     stop_to_raptors: Arc<IdToIndexes>,
@@ -148,7 +148,7 @@ impl Repository {
         Some(trips)
     }
 
-    pub fn stop_times_by_route_id(&self, route_id: &str) -> Option<Vec<Vec<&StopTime>>> {
+    pub fn stop_times_by_route_id(&self, route_id: &str) -> Option<Vec<&[StopTime]>> {
         let trips = self.trips_by_route_id(route_id)?;
         let stop_times: Vec<_> = trips
             .into_par_iter()
@@ -186,9 +186,11 @@ impl Repository {
 
     /// Returns all the stop times for a given trip.
     /// If no trip was found with the given id None is returned.
-    pub fn stop_times_by_trip_id(&self, trip_id: &str) -> Option<Vec<&StopTime>> {
-        let stop_times = self.trip_to_stop_times.get(trip_id)?;
-        Some(stop_times.iter().map(|i| &self.stop_times[*i]).collect())
+    pub fn stop_times_by_trip_id(&self, trip_id: &str) -> Option<&[StopTime]> {
+        let slice = self.trip_to_stop_times.get(trip_id)?;
+        return Some(
+            &self.stop_times[slice.start_idx as usize..(slice.start_idx + slice.count) as usize],
+        );
     }
 
     /// Returns stops near there within the coordinates.

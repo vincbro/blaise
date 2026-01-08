@@ -2,7 +2,7 @@ use crate::{
     gtfs::{self, Gtfs},
     repository::{
         Area, CellToIds, IdToId, IdToIds, IdToIndex, IdToIndexes, RaptorRoute, Repository, Route,
-        Stop, StopTime, Transfer, Trip,
+        Stop, StopTime, StopTimeSlice, Transfer, Trip,
     },
     shared::time::Duration,
 };
@@ -207,7 +207,7 @@ impl Repository {
     fn load_stop_times(&mut self, gtfs: &mut Gtfs) -> Result<(), gtfs::Error> {
         debug!("Loading stop times...");
         let now = Instant::now();
-        let mut trip_to_stop_times: HashMap<Arc<str>, Vec<usize>> = HashMap::new();
+        let mut trip_to_stop_times: HashMap<Arc<str>, StopTimeSlice> = HashMap::new();
         let mut stop_to_trips: HashMap<Arc<str>, Vec<Arc<str>>> = HashMap::new();
         let mut stop_times: Vec<StopTime> = Vec::new();
         let mut last_trip: Option<&Trip> = None;
@@ -225,13 +225,18 @@ impl Repository {
             if let Some(ct) = last_trip
                 && ct.index != trip.index
             {
+                let stop_time_slice = StopTimeSlice {
+                    start_idx: start_idx as u32,
+                    count: buffer.len() as u32,
+                };
+
                 buffer.par_sort_by_key(|val| val.sequence);
                 buffer.iter_mut().enumerate().for_each(|(j, st)| {
                     st.internal_idx = j as u32;
-                    st.index = st.start_idx + st.internal_idx;
+                    st.slice = stop_time_slice;
+                    st.index = stop_time_slice.start_idx + st.internal_idx;
                 });
-                let buffer_idxs = buffer.iter().map(|st| st.index as usize).collect();
-                trip_to_stop_times.insert(ct.id.clone(), buffer_idxs);
+                trip_to_stop_times.insert(ct.id.clone(), stop_time_slice);
                 stop_times.append(&mut buffer);
                 last_trip = Some(trip);
                 start_idx = i;
@@ -246,7 +251,6 @@ impl Repository {
             value.trip_idx = *trip_index as u32;
             value.stop_id = stop.id.clone();
             value.stop_idx = *stop_index as u32;
-            value.start_idx = start_idx as u32;
             buffer.push(value);
 
             stop_to_trips
@@ -254,18 +258,19 @@ impl Repository {
                 .or_default()
                 .push(trip.id.clone());
         })?;
+
+        let stop_time_slice = StopTimeSlice {
+            start_idx: start_idx as u32,
+            count: buffer.len() as u32,
+        };
         buffer.par_sort_by_key(|val| val.sequence);
         buffer.iter_mut().enumerate().for_each(|(j, st)| {
             st.internal_idx = j as u32;
-            st.index = st.start_idx + st.internal_idx;
+            st.index = st.slice.start_idx + st.internal_idx;
         });
         stop_times.append(&mut buffer);
 
         self.stop_times = stop_times.into();
-        let trip_to_stop_times: IdToIndexes = trip_to_stop_times
-            .into_iter()
-            .map(|(key, value)| (key, value.into()))
-            .collect();
         self.trip_to_stop_times = trip_to_stop_times.into();
 
         let stop_to_trips: IdToIds = stop_to_trips
