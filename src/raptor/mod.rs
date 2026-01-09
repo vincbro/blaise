@@ -202,7 +202,7 @@ impl<'a> Raptor<'a> {
                 .map(|stop_idx| {
                     let mut updates: Vec<Update> = vec![];
                     // All the possible transfers
-                    for transfer in self.get_transfers(stop_idx as u32) {
+                    for transfer in self.repository.transfers_by_stop_idx(stop_idx as u32) {
                         let departure_time =
                             state.labels[round][stop_idx].unwrap_or(u32::MAX.into());
                         let arrival_time = departure_time + self.transfer_duration(transfer);
@@ -399,15 +399,11 @@ impl<'a> Raptor<'a> {
         stop_times[index].departure_time
     }
 
-    fn get_transfers(&self, stop_idx: u32) -> Vec<&Transfer> {
-        self.repository.transfers_by_stop_idx(stop_idx)
-    }
-
     /// Finds the earliest trip that we can take from current stop based on the time
     fn find_earliest_trip(&self, route: &RaptorRoute, index: usize, time: Time) -> Option<&Trip> {
         let trips: Vec<_> = route
             .trips
-            .iter()
+            .into_par_iter()
             .map(|trip_idx| self.repository.stop_times_by_trip_idx(*trip_idx))
             .collect();
         let mut earliest: Option<(u32, Time)> = None;
