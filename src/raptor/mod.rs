@@ -8,7 +8,7 @@ use crate::{
         location::{Location, Point},
         state::{Parent, State, Update},
     },
-    repository::{RaptorRoute, Repository, Stop, Transfer, Trip},
+    repository::{RaptorRoute, Repository, Transfer, Trip},
     shared::{
         geo::{Coordinate, Distance},
         time::{Duration, Time},
@@ -70,8 +70,7 @@ impl<'a> Raptor<'a> {
             .repository
             .stops_by_coordinate(&from_coord, self.walk_distance)
             .into_par_iter()
-            // We filter out all GTFS stops that do serve a trip
-            .filter(|stop| self.repository.trips_by_stop_id(&stop.id).is_some())
+            .filter(|stop| !self.repository.trips_by_stop_idx(stop.index).is_empty())
             .map(|stop| {
                 let walk_duration = time_to_walk(stop.coordinate.network_distance(&from_coord));
                 let arrival_time = self.departure + walk_duration;
@@ -133,7 +132,7 @@ impl<'a> Raptor<'a> {
                 // in this case it will be 1
                 // 0 1 2 3 4 5 6 7 8
                 //   ^   ^     ^
-                let services = self.routes_serving_stop(stop_idx);
+                let services = self.routes_serving_stop(stop_idx as u32);
                 for service in services.into_iter() {
                     let r_idx = service.route_idx as usize;
                     let p_idx = service.idx_in_route;
@@ -158,9 +157,7 @@ impl<'a> Raptor<'a> {
                         // PART A
                         // Walk a certain trip and mark any stop were we improve our time
                         if let Some(trip) = active_trip
-                            && let Some(departure_time) =
-                                self.get_departure_time(&trip.id, boarding_p)
-                            && let Some(arrival_time) = self.get_arrival_time(&trip.id, i)
+                            && let arrival_time = self.get_arrival_time(trip.index, i)
                             && arrival_time
                                 < state.tau_star[*stop_idx as usize].unwrap_or(u32::MAX.into())
                             && arrival_time < target_best
@@ -172,7 +169,7 @@ impl<'a> Raptor<'a> {
                                     boarding_stop.into(),
                                     (*stop_idx).into(),
                                     trip.index,
-                                    departure_time,
+                                    self.get_departure_time(trip.index, boarding_p),
                                     arrival_time,
                                 ),
                             ));
@@ -183,7 +180,7 @@ impl<'a> Raptor<'a> {
                         let prev_round_arrival =
                             state.labels[round - 1][*stop_idx as usize].unwrap_or(u32::MAX.into());
                         let current_trip_dep = active_trip
-                            .map(|t| self.get_departure_time(&t.id, i).unwrap_or(u32::MAX.into()))
+                            .map(|t| self.get_departure_time(t.index, i))
                             .unwrap_or(u32::MAX.into());
 
                         if prev_round_arrival <= current_trip_dep
@@ -209,27 +206,27 @@ impl<'a> Raptor<'a> {
                 .map(|stop_idx| {
                     let mut updates: Vec<Update> = vec![];
                     // All the possible transfers
-                    if let Some(transfers) = self.get_transfers(stop_idx) {
-                        for transfer in transfers {
-                            let departure_time = state.labels[round][stop_idx].unwrap();
-                            let arrival_time = departure_time + self.transfer_duration(transfer);
-                            if arrival_time
-                                < state.tau_star[transfer.to_stop_idx as usize]
-                                    .unwrap_or(u32::MAX.into())
-                            {
-                                updates.push(Update::new(
-                                    transfer.to_stop_idx,
+                    for transfer in self.get_transfers(stop_idx as u32) {
+                        let departure_time =
+                            state.labels[round][stop_idx].unwrap_or(u32::MAX.into());
+                        let arrival_time = departure_time + self.transfer_duration(transfer);
+                        if arrival_time
+                            < state.tau_star[transfer.to_stop_idx as usize]
+                                .unwrap_or(u32::MAX.into())
+                        {
+                            updates.push(Update::new(
+                                transfer.to_stop_idx,
+                                arrival_time,
+                                Parent::new_transfer(
+                                    (stop_idx as u32).into(),
+                                    transfer.to_stop_idx.into(),
+                                    departure_time,
                                     arrival_time,
-                                    Parent::new_transfer(
-                                        (stop_idx as u32).into(),
-                                        transfer.to_stop_idx.into(),
-                                        departure_time,
-                                        arrival_time,
-                                    ),
-                                ));
-                            }
+                                ),
+                            ));
                         }
                     }
+
                     // All the possible walks
                     let current_stop = &self.repository.stops[stop_idx];
                     self.repository
@@ -240,7 +237,8 @@ impl<'a> Raptor<'a> {
                             let walking_distance = current_stop
                                 .coordinate
                                 .network_distance(&next_stop.coordinate);
-                            let departure_time = state.labels[round][stop_idx].unwrap();
+                            let departure_time =
+                                state.labels[round][stop_idx].unwrap_or(u32::MAX.into());
                             let arrival_time = departure_time + time_to_walk(walking_distance);
                             if arrival_time
                                 < state.tau_star[next_stop.index as usize]
@@ -370,14 +368,12 @@ impl<'a> Raptor<'a> {
         }
     }
 
-    fn routes_serving_stop(&self, stop_idx: usize) -> Vec<ServingRoute> {
-        let stop = &self.repository.stops[stop_idx];
+    fn routes_serving_stop(&self, stop_idx: u32) -> Vec<ServingRoute> {
         self.repository
-            .raptors_by_stop_id(&stop.id)
-            .unwrap_or_default()
+            .raptors_by_stop_idx(stop_idx)
             .into_iter()
             .filter_map(|route| {
-                self.index_in_route(route, stop)
+                self.index_in_route(route, stop_idx)
                     .map(|idx_in_route| ServingRoute {
                         route_idx: route.index,
                         idx_in_route,
@@ -386,48 +382,27 @@ impl<'a> Raptor<'a> {
             .collect()
     }
 
-    fn index_in_route(&self, route: &RaptorRoute, stop: &Stop) -> Option<u32> {
-        for (index, stop_idx) in route.stops.iter().enumerate() {
-            if *stop_idx == stop.index {
+    fn index_in_route(&self, route: &RaptorRoute, stop_idx: u32) -> Option<u32> {
+        for (index, route_stop_idx) in route.stops.iter().enumerate() {
+            if *route_stop_idx == stop_idx {
                 return Some(index as u32);
             }
         }
         None
     }
 
-    fn get_arrival_time(&self, trip_id: &str, index: usize) -> Option<Time> {
-        let stop_times = self.repository.stop_times_by_trip_id(trip_id)?;
-        if index >= stop_times.len() {
-            println!("Tried to get stop {index} in trip {trip_id}");
-            return None;
-        }
-        Some(stop_times[index].arrival_time)
+    fn get_arrival_time(&self, trip_idx: u32, index: usize) -> Time {
+        let stop_times = self.repository.stop_times_by_trip_idx(trip_idx);
+        stop_times[index].arrival_time
     }
 
-    fn get_departure_time(&self, trip_id: &str, index: usize) -> Option<Time> {
-        let stop_times = self.repository.stop_times_by_trip_id(trip_id)?;
-        if index >= stop_times.len() {
-            println!("Tried to get stop {index} in trip {trip_id}");
-            return None;
-        }
-        Some(stop_times[index].departure_time)
+    fn get_departure_time(&self, trip_idx: u32, index: usize) -> Time {
+        let stop_times = self.repository.stop_times_by_trip_idx(trip_idx);
+        stop_times[index].departure_time
     }
 
-    // fn get_trip_time(&self, trip_id: &str, index: usize) -> Option<(Time, Time)> {
-    //     let stop_times = self.repository.stop_times_by_trip_id(trip_id)?;
-    //     if index >= stop_times.len() {
-    //         println!("Tried to get stop {index} in trip {trip_id}");
-    //         return None;
-    //     }
-    //     Some((
-    //         stop_times[index].departure_time,
-    //         stop_times[index].arrival_time,
-    //     ))
-    // }
-
-    fn get_transfers(&self, index: usize) -> Option<Vec<&Transfer>> {
-        let stop = &self.repository.stops[index];
-        self.repository.transfers_by_stop_id(&stop.id)
+    fn get_transfers(&self, stop_idx: u32) -> Vec<&Transfer> {
+        self.repository.transfers_by_stop_idx(stop_idx)
     }
 
     /// Finds the earliest trip that we can take from current stop based on the time
@@ -435,8 +410,7 @@ impl<'a> Raptor<'a> {
         let trips: Vec<_> = route
             .trips
             .iter()
-            .map(|trip_idx| &self.repository.trips[*trip_idx as usize])
-            .filter_map(|trip| self.repository.stop_times_by_trip_id(&trip.id))
+            .map(|trip_idx| self.repository.stop_times_by_trip_idx(*trip_idx))
             .collect();
         let mut earliest: Option<(u32, Time)> = None;
         for stop_times in trips.into_iter() {

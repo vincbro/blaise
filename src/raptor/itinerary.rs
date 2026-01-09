@@ -47,7 +47,7 @@ impl LegStop {
         match parent.parent_type {
             ParentType::Transit(trip_idx) => {
                 let trip = &repository.trips[trip_idx as usize];
-                let stop_times = repository.stop_times_by_trip_id(&trip.id).unwrap();
+                let stop_times = repository.stop_times_by_trip_idx(trip.index);
                 let mut stops = Vec::with_capacity(stop_times.len());
                 if let Point::Stop(from_idx) = parent.from
                     && let Point::Stop(to_idx) = parent.to
