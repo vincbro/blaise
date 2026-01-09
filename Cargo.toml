@@ -1,5 +1,5 @@
 [package]
-version = "0.1.1"
+version = "0.1.2"
 name = "blaise"
 description = "A fast, local-first engine for GTFS transit data. Handles routing, fuzzy search, and geospatial queries without relying on external APIs."
 authors = ["Vincent Brodin <vincent.brodin21@gmail.com>"]
