@@ -90,6 +90,8 @@ pub struct State {
     pub marked: Vec<bool>,
     pub labels: Vec<Vec<Option<Time>>>,
     pub parents: Vec<Vec<Option<Parent>>>,
+    // Holds a buffer off updates
+    pub updates: Vec<Update>,
 }
 
 impl State {
@@ -99,11 +101,12 @@ impl State {
             marked: vec![false; repository.stops.len()],
             labels: vec![],
             parents: vec![],
+            updates: Vec::with_capacity(1024),
         }
     }
 
-    pub fn apply_updates(&mut self, round: usize, updates: Vec<Update>) {
-        updates.into_iter().for_each(|update| {
+    pub fn apply_updates(&mut self, round: usize) {
+        self.updates.iter().for_each(|update| {
             let best_time = self.tau_star[update.stop_idx as usize].unwrap_or(u32::MAX.into());
             if update.arrival_time < best_time {
                 self.labels[round][update.stop_idx as usize] = Some(update.arrival_time);
@@ -111,7 +114,8 @@ impl State {
                 self.tau_star[update.stop_idx as usize] = Some(update.arrival_time);
                 self.marked[update.stop_idx as usize] = true;
             }
-        })
+        });
+        self.updates.clear();
     }
 
     pub fn marked_stops(&self) -> Vec<usize> {

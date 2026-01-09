@@ -66,7 +66,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Roadmap
 
-- [ ] Production-ready web server crate with docker image
+- [x] Production-ready web server crate with docker image
 - [x] Multi-threaded routing (Switching to RAPTOR)
 - [ ] Real-time data updates (GTFS-RT)
 - [ ] Advanced date and holiday filtering

@@ -65,7 +65,7 @@ impl<'a> Raptor<'a> {
         state.parents.push(vec![None; self.repository.stops.len()]);
 
         let from_coord = self.coordinate(&self.from)?;
-        let updates: Vec<_> = self
+        let updates = self
             .repository
             .stops_by_coordinate(&from_coord, self.walk_distance)
             .into_par_iter()
@@ -83,9 +83,9 @@ impl<'a> Raptor<'a> {
                         arrival_time,
                     ),
                 )
-            })
-            .collect();
-        state.apply_updates(0, updates);
+            });
+        state.updates.par_extend(updates);
+        state.apply_updates(0);
 
         // Targets
         let to_coord = self.coordinate(&self.to)?;
@@ -113,7 +113,6 @@ impl<'a> Raptor<'a> {
 
             let marked_stops = state.marked_stops();
             debug!("Got {} marked stops", marked_stops.len());
-            // If we don't improve we have found th
             if marked_stops.is_empty() {
                 break;
             }
@@ -140,7 +139,7 @@ impl<'a> Raptor<'a> {
                     }
                 }
             });
-            let updates: Vec<Update> = active
+            let updates = active
                 .par_iter()
                 .enumerate()
                 .filter_map(|(r_idx, p_idx)| p_idx.map(|p_idx| (r_idx, p_idx)))
@@ -193,13 +192,11 @@ impl<'a> Raptor<'a> {
                     }
                     updates
                 })
-                .flatten()
-                .collect();
+                .flatten();
+            state.updates.par_extend(updates);
+            state.apply_updates(round);
 
-            // Apply all the updates and store all the updated stops
-            state.apply_updates(round, updates);
-
-            let updates: Vec<_> = state
+            let updates = state
                 .marked_stops()
                 .into_par_iter()
                 .map(|stop_idx| {
@@ -257,9 +254,9 @@ impl<'a> Raptor<'a> {
                         });
                     updates
                 })
-                .flatten()
-                .collect();
-            state.apply_updates(round, updates);
+                .flatten();
+            state.updates.par_extend(updates);
+            state.apply_updates(round);
 
             target_stops
                 .iter()
@@ -317,7 +314,6 @@ impl<'a> Raptor<'a> {
         }
         path.reverse();
 
-        // Instead of the nested if/else, use a match for clarity
         if let Some(last_parent) = path.pop() {
             let final_stop_coord = self.repository.stops[target_stop].coordinate;
             let dist_to_target = final_stop_coord.network_distance(&to_coord);
