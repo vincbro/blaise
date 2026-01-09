@@ -1,7 +1,7 @@
-mod models;
+mod entities;
 pub mod source;
 
-pub use models::*;
+pub use entities::*;
 use rayon::prelude::*;
 use std::{collections::HashMap, sync::Arc};
 
@@ -13,69 +13,112 @@ use crate::{
     },
 };
 
-// Global Urban Standard
-type IdToIndex = HashMap<Arc<str>, u32>;
-type CellToIdx = HashMap<(i32, i32), Box<[u32]>>;
+pub type Cell = (i32, i32);
 
+/// A read-only, memory-efficient data store containing all transit network information.
+///
+/// The `Repository` acts as a flattened relational database, optimized for high-performance
+/// pathfinding algorithms like RAPTOR. It uses `Box<[T]>` instead of `Vec<T>` to minimize
+/// memory overhead and signal immutability after construction.
 #[derive(Debug, Clone, Default)]
 pub struct Repository {
+    // --- Core Entities ---
+    /// Global list of all physical transit stops or stations.
     pub stops: Box<[Stop]>,
+    /// Geographical or logical groupings of stops.
     pub areas: Box<[Area]>,
+    /// High-level transit routes (e.g., "Bus 42").
     pub routes: Box<[Route]>,
+    /// Specialized route structures where every trip follows an identical stop sequence.
+    /// Required for the RAPTOR algorithm's optimization passes.
     pub raptor_routes: Box<[RaptorRoute]>,
+    /// Individual vehicle journeys occurring at specific times.
     pub trips: Box<[Trip]>,
+    /// The specific arrival/departure events linking trips to stops.
     pub stop_times: Box<[StopTime]>,
+    /// All known transfers.
     pub transfers: Box<[Transfer]>,
 
-    // GTFS lookup
-    stop_lookup: IdToIndex,
-    trip_lookup: IdToIndex,
-    area_lookup: IdToIndex,
-    route_lookup: IdToIndex,
-    stop_distance_lookup: CellToIdx,
+    // --- Primary Key Lookups ---
+    /// Maps a unique `Stop.id` string to its index within the `stops` slice.
+    stop_lookup: HashMap<Arc<str>, u32>,
+    /// Maps a unique `Trip.id` string to its index within the `trips` slice.
+    trip_lookup: HashMap<Arc<str>, u32>,
+    /// Maps a unique `Area.id` string to its index within the `areas` slice.
+    area_lookup: HashMap<Arc<str>, u32>,
+    /// Maps a unique `Route.id` string to its index within the `routes` slice.
+    route_lookup: HashMap<Arc<str>, u32>,
+    /// Spatial index used to find stops within specific grid cells.
+    stop_distance_lookup: HashMap<Cell, Box<[u32]>>,
 
-    // Maps
+    // --- Relationship Indicies (Adjacency Lists) ---
+    /// Index mapping: `route_index -> [trip_index, ...]`.
     route_to_trips: Box<[Box<[u32]>]>,
+    /// Index mapping: `trip_index -> route_index`.
     trip_to_route: Box<[u32]>,
+    /// Index mapping: `area_index -> [stop_index, ...]`.
     area_to_stops: Box<[Box<[u32]>]>,
+    /// Index mapping: `stop_index -> area_index`.
     stop_to_area: Box<[u32]>,
+    /// Index mapping: `stop_index -> [transfer_index, ...]`.
     stop_to_transfers: Box<[Box<[u32]>]>,
+    /// Index mapping: `stop_index -> [trip_index, ...]`.
     stop_to_trips: Box<[Box<[u32]>]>,
+    /// Defines the range within the `stop_times` slice that belongs to a specific trip.
     trip_to_stop_slice: Box<[StopTimeSlice]>,
-    // Raptor lookup
+
+    // --- RAPTOR Specialized Lookups ---
+    /// Maps a standard route index to its corresponding `RaptorRoute` versions.
     route_to_raptors: Box<[Box<[u32]>]>,
+    /// Maps a stop index to all `RaptorRoute` indices that serve it.
     stop_to_raptors: Box<[Box<[u32]>]>,
 }
 
 impl Repository {
+    /// Creates a new, empty repository instance.
     pub fn new() -> Self {
         Default::default()
     }
 
-    /// Get an area with the given id.
-    /// If no area is found with the given id None is returned.
-    /// Area is safe and quick to clone if a owned instance is needed.
-    pub fn area_by_id(&self, id: &str) -> Option<&Area> {
-        let area_index = self.area_lookup.get(id)?;
-        Some(&self.areas[*area_index as usize])
+    /// Initializes a new RAPTOR router instance tied to the lifetime of this repository.
+    ///
+    /// This is the entry point for performing pathfinding between two locations.
+    pub fn router(&'_ self, from: Location, to: Location) -> Raptor<'_> {
+        Raptor::new(self, from, to)
     }
 
-    /// Get an stop with the given id.
-    /// If no stop is found with the given id None is returned.
-    /// Stop is safe and quick to clone if a owned instance is needed.
+    // --- Primary Key Lookups Functions ---
+
+    /// Retrieves a [`Stop`] by its string identifier `Stop.id`.
+    /// Returns `None` if the ID does not exist.
     pub fn stop_by_id(&self, id: &str) -> Option<&Stop> {
         let stop_index = self.stop_lookup.get(id)?;
         Some(&self.stops[*stop_index as usize])
     }
 
-    /// Returns all the stops in an area with the given id.
-    /// The if there is no area with the given id None is returned.
-    /// Stop is safe and quick to clone if a owned instance is needed.
-    pub fn stops_by_area_id(&self, area_id: &str) -> Option<Vec<&Stop>> {
-        let area_idx = self.area_lookup.get(area_id)?;
-        Some(self.stops_by_area_idx(*area_idx))
+    /// Retrieves a [`Area`] by its string identifier `Area.id`.
+    /// Returns `None` if the ID does not exist.
+    pub fn area_by_id(&self, id: &str) -> Option<&Area> {
+        let area_index = self.area_lookup.get(id)?;
+        Some(&self.areas[*area_index as usize])
     }
 
+    /// Retrieves a [`Trip`] by its string identifier `Trip.id`.
+    /// Returns `None` if the ID does not exist.
+    pub fn trip_by_id(&self, id: &str) -> Option<&Trip> {
+        let trip_index = self.trip_lookup.get(id)?;
+        Some(&self.trips[*trip_index as usize])
+    }
+
+    /// Retrieves a [`Route`] by its string identifier `Route.id`.
+    /// Returns `None` if the ID does not exist.
+    pub fn route_by_id(&self, id: &str) -> Option<&Route> {
+        let index = self.route_lookup.get(id)?;
+        Some(&self.routes[*index as usize])
+    }
+
+    // --- Relationship Indicies (Adjacency Lists) Functions ---
+    /// Returns a list of all stops contained within a specific parent area.
     pub fn stops_by_area_idx(&self, area_idx: u32) -> Vec<&Stop> {
         self.area_to_stops[area_idx as usize]
             .iter()
@@ -83,27 +126,14 @@ impl Repository {
             .collect()
     }
 
-    /// Gets the area that the given stop is in.
-    /// If no stop, or area is found None is returned.
-    pub fn area_by_stop_id(&self, stop_id: &str) -> Option<&Area> {
-        let stop_idx = self.stop_lookup.get(stop_id)?;
-        Some(self.area_by_stop_idx(*stop_idx))
-    }
-
+    /// Returns the parent [`Area`] for a given [`Stop`] using it's index (`Stop.index`).
     pub fn area_by_stop_idx(&self, stop_idx: u32) -> &Area {
         let area_idx = self.stop_to_area[stop_idx as usize];
         &self.areas[area_idx as usize]
     }
 
-    pub fn coordinate_by_area_id(&self, area_id: &str) -> Option<Coordinate> {
-        Some(
-            self.stops_by_area_id(area_id)?
-                .iter()
-                .map(|stop| stop.coordinate)
-                .sum(),
-        )
-    }
-
+    /// Calculates the centroid/representative coordinate of an area by
+    /// averaging the coordinates of all stops within it.
     pub fn coordinate_by_area_idx(&self, area_idx: u32) -> Coordinate {
         self.stops_by_area_idx(area_idx)
             .iter()
@@ -111,12 +141,7 @@ impl Repository {
             .sum()
     }
 
-    /// Get all the possible transfers from a stop
-    pub fn transfers_by_stop_id(&self, stop_id: &str) -> Option<Vec<&Transfer>> {
-        let stop = self.stop_by_id(stop_id)?;
-        Some(self.transfers_by_stop_idx(stop.index))
-    }
-
+    /// Retrieves all outbound [`Transfer`] connections available from a specific [`Stop`] using it's index (`Stop.index`).
     pub fn transfers_by_stop_idx(&self, stop_idx: u32) -> Vec<&Transfer> {
         let transfers = &self.stop_to_transfers[stop_idx as usize];
         transfers
@@ -124,20 +149,8 @@ impl Repository {
             .map(|transfer_idx| &self.transfers[*transfer_idx as usize])
             .collect()
     }
-    /// Gets a trip with the given id.
-    /// If no trip with the given id was found None is returned.
-    pub fn trip_by_id(&self, id: &str) -> Option<&Trip> {
-        let trip_index = self.trip_lookup.get(id)?;
-        Some(&self.trips[*trip_index as usize])
-    }
 
-    /// Returns all the trips that go trough a given stop.
-    /// If no stop was found with the given id none is returned.
-    pub fn trips_by_stop_id(&self, stop_id: &str) -> Option<Vec<&Trip>> {
-        let stop_idx = self.stop_lookup.get(stop_id)?;
-        Some(self.trips_by_stop_idx(*stop_idx))
-    }
-
+    /// Finds all trips that call at a specific [`Stop`] using it's index (`Stop.index`).
     pub fn trips_by_stop_idx(&self, stop_idx: u32) -> Vec<&Trip> {
         self.stop_to_trips[stop_idx as usize]
             .iter()
@@ -145,26 +158,13 @@ impl Repository {
             .collect()
     }
 
-    pub fn route_by_id(&self, id: &str) -> Option<&Route> {
-        let index = self.route_lookup.get(id)?;
-        Some(&self.routes[*index as usize])
-    }
-
-    pub fn route_by_trip_id(&self, trip_id: &str) -> Option<&Route> {
-        let trip_idx = self.trip_lookup.get(trip_id)?;
-        Some(self.route_by_trip_idx(*trip_idx))
-    }
-
+    /// Identifies which high-level [`Route`] a specific [`Trip`] belongs to using it's index (`Trip.index`).
     pub fn route_by_trip_idx(&self, trip_idx: u32) -> &Route {
         let route_idx = self.trip_to_route[trip_idx as usize];
         &self.routes[route_idx as usize]
     }
 
-    pub fn trips_by_route_id(&self, route_id: &str) -> Option<Vec<&Trip>> {
-        let route_idx = self.route_lookup.get(route_id)?;
-        Some(self.trips_by_route_idx(*route_idx))
-    }
-
+    /// Retrieves all scheduled trips for a specific route.
     pub fn trips_by_route_idx(&self, route_idx: u32) -> Vec<&Trip> {
         self.route_to_trips[route_idx as usize]
             .iter()
@@ -172,11 +172,7 @@ impl Repository {
             .collect()
     }
 
-    pub fn stop_times_by_route_id(&self, route_id: &str) -> Option<Vec<&[StopTime]>> {
-        let route_idx = self.route_lookup.get(route_id)?;
-        Some(self.stop_times_by_route_idx(*route_idx))
-    }
-
+    /// Retrieves the full schedule (arrival/departure times) for every trip on a route.
     pub fn stop_times_by_route_idx(&self, route_idx: u32) -> Vec<&[StopTime]> {
         self.route_to_trips[route_idx as usize]
             .iter()
@@ -184,44 +180,10 @@ impl Repository {
             .collect()
     }
 
-    pub fn routes_by_stop_id(&self, stop_id: &str) -> Option<Vec<&Route>> {
-        self.trips_by_stop_id(stop_id)?
-            .into_par_iter()
-            .map(|trip| self.route_by_trip_id(&trip.id))
-            .collect()
-    }
-
-    pub fn raptors_by_route_id(&self, route_id: &str) -> Option<Vec<&RaptorRoute>> {
-        let route_idx = self.route_lookup.get(route_id)?;
-        Some(self.raptors_by_route_idx(*route_idx))
-    }
-
-    pub fn raptors_by_route_idx(&self, route_idx: u32) -> Vec<&RaptorRoute> {
-        self.route_to_raptors[route_idx as usize]
-            .iter()
-            .map(|raptor_idx| &self.raptor_routes[*raptor_idx as usize])
-            .collect()
-    }
-
-    pub fn raptors_by_stop_id(&self, stop_id: &str) -> Option<Vec<&RaptorRoute>> {
-        let stop_idx = self.stop_lookup.get(stop_id)?;
-        Some(self.raptors_by_stop_idx(*stop_idx))
-    }
-
-    pub fn raptors_by_stop_idx(&self, stop_idx: u32) -> Vec<&RaptorRoute> {
-        self.stop_to_raptors[stop_idx as usize]
-            .iter()
-            .map(|raptor_idx| &self.raptor_routes[*raptor_idx as usize])
-            .collect()
-    }
-
-    /// Returns all the stop times for a given trip.
-    /// If no trip was found with the given id None is returned.
-    pub fn stop_times_by_trip_id(&self, trip_id: &str) -> Option<&[StopTime]> {
-        let trip_idx = self.trip_lookup.get(trip_id)?;
-        Some(self.stop_times_by_trip_idx(*trip_idx))
-    }
-
+    /// Efficiently retrieves a slice of [`StopTime`] entries for a specific trip.
+    ///
+    /// This uses a pre-computed pointer slice (start/count) into the global
+    /// `stop_times` array for $O(1)$ access.
     pub fn stop_times_by_trip_idx(&self, trip_idx: u32) -> &[StopTime] {
         let slice = self.trip_to_stop_slice[trip_idx as usize];
         let start = slice.start_idx as usize;
@@ -229,10 +191,13 @@ impl Repository {
         &self.stop_times[start..end]
     }
 
-    /// Returns stops near there within the coordinates.
+    /// Spatial query: Returns all stops within a certain distance of a coordinate.
+    ///
+    /// This uses a grid-based cell lookup for performance, followed by an
+    /// exact distance filter using the network distance metric.
     pub fn stops_by_coordinate(&self, coordinate: &Coordinate, distance: Distance) -> Vec<&Stop> {
         let reach = (distance / AVERAGE_STOP_DISTANCE).as_meters().ceil().abs() as i32;
-        let (origin_x, origin_y) = coordinate.to_grid();
+        let (origin_x, origin_y) = coordinate.to_cell();
         (-reach..=reach)
             .into_par_iter()
             .flat_map(|x| {
@@ -260,7 +225,7 @@ impl Repository {
             .collect()
     }
 
-    /// Returns areas near there within the coordinates.
+    /// Spatial query: Returns all logical areas within range of a coordinate.  
     pub fn areas_by_coordinate(&self, coordinate: &Coordinate, distance: Distance) -> Vec<&Area> {
         let stops = self.stops_by_coordinate(coordinate, distance);
         stops
@@ -269,17 +234,32 @@ impl Repository {
             .collect()
     }
 
-    /// Does a fuzzy search on all the areas, comparing there name to the needle.
+    // --- RAPTOR Specialized Lookups Functions ---
+    /// Returns the optimized `RaptorRoute` variations for a given standard route.
+    pub fn raptors_by_route_idx(&self, route_idx: u32) -> Vec<&RaptorRoute> {
+        self.route_to_raptors[route_idx as usize]
+            .iter()
+            .map(|raptor_idx| &self.raptor_routes[*raptor_idx as usize])
+            .collect()
+    }
+
+    /// Identifies which optimized RAPTOR routes pass through a specific stop.
+    pub fn raptors_by_stop_idx(&self, stop_idx: u32) -> Vec<&RaptorRoute> {
+        self.stop_to_raptors[stop_idx as usize]
+            .iter()
+            .map(|raptor_idx| &self.raptor_routes[*raptor_idx as usize])
+            .collect()
+    }
+
+    // --- Fuzzy ---
+
+    /// Performs a fuzzy text search against area names to find matches for partial user input.
     pub fn search_areas_by_name<'a>(&'a self, needle: &'a str) -> Vec<&'a Area> {
         shared::search(needle, &self.areas)
     }
 
-    /// Does a fuzzy search on all the stops, comparing there name to the needle.
+    /// Performs a fuzzy text search against stop names (e.g., for autocomplete).
     pub fn search_stops_by_name<'a>(&'a self, needle: &'a str) -> Vec<&'a Stop> {
         shared::search(needle, &self.stops)
-    }
-
-    pub fn router(&'_ self, from: Location, to: Location) -> Raptor<'_> {
-        Raptor::new(self, from, to)
     }
 }

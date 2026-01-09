@@ -6,9 +6,8 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use blaise::{
-    raptor::{Raptor, itinerary::LegType, location::Location},
-    repository::Repository,
-    shared::{geo::Coordinate, time::Time},
+    prelude::*,
+    raptor::{LegType, Location, Raptor},
 };
 use std::{
     collections::HashMap,

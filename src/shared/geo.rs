@@ -1,3 +1,5 @@
+use crate::repository::Cell;
+use serde::{Deserialize, Serialize};
 use std::{
     cmp,
     fmt::Display,
@@ -5,8 +7,6 @@ use std::{
     ops::{Add, Div, Mul, Sub},
     str::FromStr,
 };
-
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 pub(crate) const AVERAGE_STOP_DISTANCE: Distance = Distance::from_meters(500.0);
@@ -172,7 +172,7 @@ impl Coordinate {
         Distance::from_meters(self.euclidean_distance(coord).as_meters() * CIRCUITY_FACTOR)
     }
 
-    pub fn to_grid(&self) -> (i32, i32) {
+    pub fn to_cell(&self) -> Cell {
         let x = (self.longitude * LONGITUDE_DISTANCE.as_meters()
             / AVERAGE_STOP_DISTANCE.as_meters()) as i32;
         let y = (self.latitude * LATITUDE_DISTANCE.as_meters() / AVERAGE_STOP_DISTANCE.as_meters())

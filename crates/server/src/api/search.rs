@@ -5,8 +5,8 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use blaise::shared::geo::{Coordinate, Distance};
-use std::{collections::HashMap, str::FromStr, sync::Arc};
+use blaise::prelude::*;
+use std::{collections::HashMap, sync::Arc};
 use tracing::warn;
 
 pub async fn search(

@@ -2,12 +2,11 @@ pub mod itinerary;
 pub mod location;
 pub mod state;
 
+pub use itinerary::*;
+pub use location::*;
+pub use state::*;
+
 use crate::{
-    raptor::{
-        itinerary::Itinerary,
-        location::{Location, Point},
-        state::{Parent, State, Update},
-    },
     repository::{RaptorRoute, Repository, Transfer, Trip},
     shared::{
         geo::{Coordinate, Distance},
@@ -355,10 +354,13 @@ impl<'a> Raptor<'a> {
 
     fn coordinate(&self, location: &Location) -> Result<Coordinate, self::Error> {
         match location {
-            Location::Area(id) => self
-                .repository
-                .coordinate_by_area_id(id)
-                .ok_or(self::Error::InvalidAreaID),
+            Location::Area(id) => {
+                let area_idx = self
+                    .repository
+                    .area_lo(id)
+                    .ok_or(self::Error::InvalidAreaID)?;
+                Ok(self.repository.coordinate_by_area_idx(area_idx.index))
+            }
             Location::Stop(id) => self
                 .repository
                 .stop_by_id(id)

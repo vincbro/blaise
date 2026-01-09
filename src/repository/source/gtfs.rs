@@ -1,13 +1,12 @@
 use crate::{
     gtfs::{self, Gtfs},
     repository::{
-        Area, CellToIdx, IdToIndex, RaptorRoute, Repository, Route, Stop, StopTime, StopTimeSlice,
-        Transfer, Trip,
+        Area, Cell, RaptorRoute, Repository, Route, Stop, StopTime, StopTimeSlice, Transfer, Trip,
     },
     shared::time::Duration,
 };
 use rayon::prelude::*;
-use std::{collections::HashMap, time::Instant};
+use std::{collections::HashMap, sync::Arc, time::Instant};
 use tracing::debug;
 
 impl Repository {
@@ -27,7 +26,7 @@ impl Repository {
     fn load_stops(&mut self, gtfs: &mut Gtfs) -> Result<(), gtfs::Error> {
         debug!("Loading stops...");
         let now = Instant::now();
-        let mut stop_lookup: IdToIndex = HashMap::new();
+        let mut stop_lookup: HashMap<Arc<str>, u32> = HashMap::new();
         let mut stops: Vec<Stop> = Vec::new();
         gtfs.stream_stops(|(i, stop)| {
             let mut value: Stop = stop.into();
@@ -44,7 +43,7 @@ impl Repository {
     fn load_areas(&mut self, gtfs: &mut Gtfs) -> Result<(), gtfs::Error> {
         debug!("Loading areas...");
         let now = Instant::now();
-        let mut area_lookup: IdToIndex = HashMap::new();
+        let mut area_lookup: HashMap<Arc<str>, u32> = HashMap::new();
         let mut areas: Vec<Area> = Vec::new();
         gtfs.stream_areas(|(i, area)| {
             let mut value: Area = area.into();
@@ -84,7 +83,7 @@ impl Repository {
     fn load_routes(&mut self, gtfs: &mut Gtfs) -> Result<(), gtfs::Error> {
         debug!("Loading routes...");
         let now = Instant::now();
-        let mut route_lookup: IdToIndex = HashMap::new();
+        let mut route_lookup: HashMap<Arc<str>, u32> = HashMap::new();
         let mut routes: Vec<Route> = Vec::new();
         gtfs.stream_routes(|(i, route)| {
             let mut value: Route = route.into();
@@ -101,7 +100,7 @@ impl Repository {
     fn load_trips(&mut self, gtfs: &mut Gtfs) -> Result<(), gtfs::Error> {
         debug!("Loading trips...");
         let now = Instant::now();
-        let mut trip_lookup: IdToIndex = HashMap::new();
+        let mut trip_lookup: HashMap<Arc<str>, u32> = HashMap::new();
         let mut route_to_trips: Vec<Vec<u32>> = vec![Vec::new(); self.routes.len()];
         let mut trip_to_route: Vec<u32> = Vec::new();
         let mut trips: Vec<Trip> = Vec::new();
@@ -275,18 +274,15 @@ impl Repository {
         // to its nearby stops, we are going to map each stop with trips into a grid
         debug!("Generating geo spatial hash...");
         let now = Instant::now();
-        let mut stop_distance_lookup: HashMap<(i32, i32), Vec<u32>> = HashMap::new();
-        self.stops
-            .iter()
-            // .filter(|stop| self.trips_by_stop_id(&stop.id).is_some())
-            .for_each(|stop| {
-                let cell = stop.coordinate.to_grid();
-                stop_distance_lookup
-                    .entry(cell)
-                    .or_default()
-                    .push(stop.index);
-            });
-        let stop_distance_lookup: CellToIdx = stop_distance_lookup
+        let mut stop_distance_lookup: HashMap<Cell, Vec<u32>> = HashMap::new();
+        self.stops.iter().for_each(|stop| {
+            let cell = stop.coordinate.to_cell();
+            stop_distance_lookup
+                .entry(cell)
+                .or_default()
+                .push(stop.index);
+        });
+        let stop_distance_lookup: HashMap<Cell, Box<[u32]>> = stop_distance_lookup
             .into_iter()
             .map(|(cell, stops)| (cell, stops.into()))
             .collect();
