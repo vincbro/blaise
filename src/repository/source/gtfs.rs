@@ -62,14 +62,14 @@ impl Repository {
         let now = Instant::now();
 
         let mut area_to_stops: Vec<Vec<u32>> = vec![Vec::new(); self.areas.len()];
-        let mut stop_to_area: Vec<u32> = vec![u32::MAX; self.stops.len()];
+        let mut stop_to_area: Vec<Option<u32>> = vec![None; self.stops.len()];
         gtfs.stream_stop_areas(|(_, value)| {
             // TEMP
             let stop_idx = self.stop_lookup.get(value.stop_id.as_str()).unwrap();
             // TEMP
             let area_idx = self.area_lookup.get(value.area_id.as_str()).unwrap();
 
-            stop_to_area[*stop_idx as usize] = *area_idx;
+            stop_to_area[*stop_idx as usize] = Some(*area_idx);
             area_to_stops[*area_idx as usize].push(*stop_idx);
         })?;
         self.stop_to_area = stop_to_area.into();

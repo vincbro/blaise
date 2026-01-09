@@ -1,4 +1,10 @@
-use crate::{raptor::location::Point, repository::Repository, shared::time::Time};
+use std::mem;
+
+use crate::{
+    raptor::{MAX_ROUNDS, location::Point},
+    repository::Repository,
+    shared::time::Time,
+};
 use rayon::prelude::*;
 
 #[derive(Debug, Clone, Copy)]
@@ -88,10 +94,16 @@ impl Update {
 pub struct State {
     pub tau_star: Vec<Option<Time>>,
     pub marked: Vec<bool>,
-    pub labels: Vec<Vec<Option<Time>>>,
-    pub parents: Vec<Vec<Option<Parent>>>,
+    // We use 2 arrays that we then switch every round since you only
+    // ever look at the current and last rounds in raptor,
+    // so keeping a full record does nothing.
+    pub prev_labels: Vec<Option<Time>>,
+    pub curr_labels: Vec<Option<Time>>,
+    // Moving parents to a single
+    pub parents: Vec<Option<Parent>>,
     // Holds a buffer off updates
     pub updates: Vec<Update>,
+    stop_count: usize,
 }
 
 impl State {
@@ -99,9 +111,11 @@ impl State {
         Self {
             tau_star: vec![None; repository.stops.len()],
             marked: vec![false; repository.stops.len()],
-            labels: vec![],
-            parents: vec![],
+            prev_labels: vec![None; repository.stops.len()],
+            curr_labels: vec![None; repository.stops.len()],
+            parents: vec![None; repository.stops.len() * MAX_ROUNDS],
             updates: Vec::with_capacity(1024),
+            stop_count: repository.stops.len(),
         }
     }
 
@@ -109,8 +123,9 @@ impl State {
         self.updates.iter().for_each(|update| {
             let best_time = self.tau_star[update.stop_idx as usize].unwrap_or(u32::MAX.into());
             if update.arrival_time < best_time {
-                self.labels[round][update.stop_idx as usize] = Some(update.arrival_time);
-                self.parents[round][update.stop_idx as usize] = Some(update.parent);
+                self.curr_labels[update.stop_idx as usize] = Some(update.arrival_time);
+                self.parents[flat_matrix(round, update.stop_idx, self.stop_count)] =
+                    Some(update.parent);
                 self.tau_star[update.stop_idx as usize] = Some(update.arrival_time);
                 self.marked[update.stop_idx as usize] = true;
             }
@@ -125,4 +140,16 @@ impl State {
             .filter_map(|(i, &m)| m.then_some(i))
             .collect()
     }
+
+    pub fn switch_labels(&mut self) {
+        mem::swap(&mut self.curr_labels, &mut self.prev_labels);
+        self.curr_labels.fill(None);
+    }
+}
+
+/// Converts a (round, stop_index) coordinate into a flat index
+/// for the 1D parents/labels arrays.
+#[inline(always)] // Hint to compiler to inline for performance
+pub fn flat_matrix(outer: usize, inner: u32, count: usize) -> usize {
+    (outer * count) + inner as usize
 }

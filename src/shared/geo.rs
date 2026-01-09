@@ -111,6 +111,15 @@ impl From<Coordinate> for (f32, f32) {
     }
 }
 
+impl From<(f32, f32)> for Coordinate {
+    fn from(value: (f32, f32)) -> Self {
+        Self {
+            latitude: value.0,
+            longitude: value.1,
+        }
+    }
+}
+
 impl Display for Coordinate {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!("{}, {}", self.latitude, self.longitude))

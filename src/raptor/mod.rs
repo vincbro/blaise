@@ -7,7 +7,7 @@ pub use location::*;
 pub use state::*;
 
 use crate::{
-    repository::{RaptorRoute, Repository, Transfer, Trip},
+    repository::{RaptorRoute, Repository, StopTime, Transfer, Trip},
     shared::{
         geo::{Coordinate, Distance},
         time::{Duration, Time},
@@ -16,6 +16,8 @@ use crate::{
 use rayon::prelude::*;
 use thiserror::Error;
 use tracing::debug;
+
+pub const MAX_ROUNDS: usize = 15;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -106,8 +108,6 @@ impl<'a> Raptor<'a> {
     pub fn solve(self) -> Result<Itinerary, self::Error> {
         let mut active = vec![None; self.repository.raptor_routes.len()];
         let mut state = State::new(self.repository);
-        state.labels.push(vec![None; self.repository.stops.len()]);
-        state.parents.push(vec![None; self.repository.stops.len()]);
 
         let from_coord = self.coordinate(&self.from)?;
         let updates = self
@@ -150,11 +150,13 @@ impl<'a> Raptor<'a> {
         let mut target_best_round: Option<usize> = None;
 
         // We always start at round 1 since the base round is 0
-        let mut round = 1;
+        let mut round: usize = 1;
         loop {
+            if round >= MAX_ROUNDS {
+                break;
+            }
             // Add a new round to the list
-            state.labels.push(vec![None; self.repository.stops.len()]);
-            state.parents.push(vec![None; self.repository.stops.len()]);
+            state.switch_labels();
 
             let marked_stops = state.marked_stops();
             debug!("Got {} marked stops", marked_stops.len());
@@ -191,11 +193,16 @@ impl<'a> Raptor<'a> {
                 .map(|(route_idx, p_idx)| {
                     // We walk down each route starting from
                     // the earliest stop in the route we updated last round
-                    let mut updates: Vec<Update> = vec![];
+
                     let route = &self.repository.raptor_routes[route_idx];
                     let mut active_trip: Option<&Trip> = None;
                     let mut boarding_stop: u32 = u32::MAX;
                     let mut boarding_p: usize = usize::MAX;
+
+                    // --- Buffers ---
+                    let mut updates_buffer: Vec<Update> = Vec::with_capacity(64);
+                    let mut earliest_trip_buffer: Vec<&[StopTime]> = Vec::with_capacity(64);
+
                     for (i, stop_idx) in route.stops.iter().enumerate().skip(p_idx as usize) {
                         // PART A
                         // Walk a certain trip and mark any stop were we improve our time
@@ -205,7 +212,7 @@ impl<'a> Raptor<'a> {
                                 < state.tau_star[*stop_idx as usize].unwrap_or(u32::MAX.into())
                             && arrival_time < target_best
                         {
-                            updates.push(Update::new(
+                            updates_buffer.push(Update::new(
                                 *stop_idx,
                                 arrival_time,
                                 Parent::new_transit(
@@ -221,21 +228,25 @@ impl<'a> Raptor<'a> {
                         // PART B
                         // See if we could have catched an earlier trip to get to were we currently are
                         let prev_round_arrival =
-                            state.labels[round - 1][*stop_idx as usize].unwrap_or(u32::MAX.into());
+                            state.prev_labels[*stop_idx as usize].unwrap_or(u32::MAX.into());
                         let current_trip_dep = active_trip
                             .map(|t| self.get_departure_time(t.index, i))
                             .unwrap_or(u32::MAX.into());
 
                         if prev_round_arrival <= current_trip_dep
-                            && let Some(earlier_trip) =
-                                self.find_earliest_trip(route, i, prev_round_arrival)
+                            && let Some(earlier_trip) = self.find_earliest_trip(
+                                route,
+                                i,
+                                prev_round_arrival,
+                                &mut earliest_trip_buffer,
+                            )
                         {
                             active_trip = Some(earlier_trip);
                             boarding_stop = *stop_idx;
                             boarding_p = i;
                         }
                     }
-                    updates
+                    updates_buffer
                 })
                 .flatten();
             state.updates.par_extend(updates);
@@ -248,8 +259,7 @@ impl<'a> Raptor<'a> {
                     let mut updates: Vec<Update> = vec![];
                     // All the possible transfers
                     for transfer in self.repository.transfers_by_stop_idx(stop_idx as u32) {
-                        let departure_time =
-                            state.labels[round][stop_idx].unwrap_or(u32::MAX.into());
+                        let departure_time = state.curr_labels[stop_idx].unwrap_or(u32::MAX.into());
                         let arrival_time = departure_time + self.transfer_duration(transfer);
                         if arrival_time
                             < state.tau_star[transfer.to_stop_idx as usize]
@@ -279,7 +289,7 @@ impl<'a> Raptor<'a> {
                                 .coordinate
                                 .network_distance(&next_stop.coordinate);
                             let departure_time =
-                                state.labels[round][stop_idx].unwrap_or(u32::MAX.into());
+                                state.curr_labels[stop_idx].unwrap_or(u32::MAX.into());
                             let arrival_time = departure_time + time_to_walk(walking_distance);
                             if arrival_time
                                 < state.tau_star[next_stop.index as usize]
@@ -332,7 +342,7 @@ impl<'a> Raptor<'a> {
 
     fn backtrack(
         &self,
-        parents: Vec<Vec<Option<Parent>>>,
+        parents: Vec<Option<Parent>>,
         to_coord: Coordinate,
         target_stop: usize,
         target_round: usize,
@@ -341,9 +351,10 @@ impl<'a> Raptor<'a> {
 
         let mut current_point: Point = (target_stop as u32).into();
         let mut current_round = target_round;
+        let stop_count = self.repository.stops.len();
 
         while let Point::Stop(current_stop) = current_point {
-            if let Some(parent) = &parents[current_round][current_stop as usize] {
+            if let Some(parent) = &parents[flat_matrix(current_round, current_stop, stop_count)] {
                 path.push(*parent);
                 current_point = parent.from;
                 // If we are on a transit we decrese the round else we don't since
@@ -445,14 +456,22 @@ impl<'a> Raptor<'a> {
     }
 
     /// Finds the earliest trip that we can take from current stop based on the time
-    fn find_earliest_trip(&self, route: &RaptorRoute, index: usize, time: Time) -> Option<&Trip> {
-        let trips: Vec<_> = route
-            .trips
-            .into_par_iter()
-            .map(|trip_idx| self.repository.stop_times_by_trip_idx(*trip_idx))
-            .collect();
+    fn find_earliest_trip(
+        &self,
+        route: &RaptorRoute,
+        index: usize,
+        time: Time,
+        buffer: &mut Vec<&'a [StopTime]>,
+    ) -> Option<&Trip> {
+        buffer.clear();
+        buffer.extend(
+            route
+                .trips
+                .iter()
+                .map(|trip_idx| self.repository.stop_times_by_trip_idx(*trip_idx)),
+        );
         let mut earliest: Option<(u32, Time)> = None;
-        for stop_times in trips.into_iter() {
+        for stop_times in buffer.iter() {
             let stop_time = &stop_times[index];
             let departure_time = stop_time.departure_time;
             // Make sure we don't try to catch a trip that has already left

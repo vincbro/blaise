@@ -59,7 +59,7 @@ pub struct Repository {
     /// Index mapping: `area_index -> [stop_index, ...]`.
     area_to_stops: Box<[Box<[u32]>]>,
     /// Index mapping: `stop_index -> area_index`.
-    stop_to_area: Box<[u32]>,
+    stop_to_area: Box<[Option<u32>]>,
     /// Index mapping: `stop_index -> [transfer_index, ...]`.
     stop_to_transfers: Box<[Box<[u32]>]>,
     /// Index mapping: `stop_index -> [trip_index, ...]`.
@@ -127,9 +127,9 @@ impl Repository {
     }
 
     /// Returns the parent [`Area`] for a given [`Stop`] using it's index (`Stop.index`).
-    pub fn area_by_stop_idx(&self, stop_idx: u32) -> &Area {
-        let area_idx = self.stop_to_area[stop_idx as usize];
-        &self.areas[area_idx as usize]
+    pub fn area_by_stop_idx(&self, stop_idx: u32) -> Option<&Area> {
+        let area_idx = self.stop_to_area[stop_idx as usize]?;
+        Some(&self.areas[area_idx as usize])
     }
 
     /// Calculates the centroid/representative coordinate of an area by
@@ -230,7 +230,7 @@ impl Repository {
         let stops = self.stops_by_coordinate(coordinate, distance);
         stops
             .into_par_iter()
-            .map(|stop| self.area_by_stop_idx(stop.index))
+            .filter_map(|stop| self.area_by_stop_idx(stop.index))
             .collect()
     }
 
