@@ -34,6 +34,16 @@ struct ServingRoute {
     idx_in_route: u32,
 }
 
+/// The execution engine for the Round-Based Public Transit Routing (RAPTOR) algorithm.
+///
+/// This struct holds the search parameters and a reference to the underlying transit
+/// [`Repository`]. It is designed to be short-lived, typically created via
+/// [`Repository::router`].
+///
+/// # Search Logic
+/// RAPTOR explores the network in "rounds." Round `K` finds all stops reachable
+/// with exactly `K` trips. This structure ensures that we only explore the
+/// necessary graph edges based on the `departure` time and `walk_distance` constraints.
 pub struct Raptor<'a> {
     repository: &'a Repository,
     from: Location,
@@ -43,6 +53,16 @@ pub struct Raptor<'a> {
 }
 
 impl<'a> Raptor<'a> {
+    /// Creates a new RAPTOR search instance for a specific origin and destination.
+    ///
+    /// By default, the search uses the current system time for departure and
+    /// a standard walking distance. These can be customized using the builder
+    /// methods before calling [`solve`].
+    ///
+    /// # Arguments
+    /// * `repository` - A reference to the static transit data.
+    /// * `from` - The starting location (Stop, Area, or Coordinate).
+    /// * `to` - The target destination.
     pub fn new(repository: &'a Repository, from: Location, to: Location) -> Self {
         Self {
             repository,
@@ -53,11 +73,36 @@ impl<'a> Raptor<'a> {
         }
     }
 
+    /// Sets the earliest time the journey can begin.
+    ///
+    /// The algorithm will only consider trips that depart at or after this time.
+    /// Note that earlier departure times may result in different optimal paths
+    /// even for the same origin/destination.
+    ///
+    /// # Example
+    /// ```rust
+    /// let router = Raptor::new(repo, start, end)
+    ///     .departure_at(Time::from_hms(8, 30, 0));
+    /// ```
     pub fn departure_at(mut self, departure: Time) -> Self {
         self.departure = departure;
         self
     }
 
+    /// Executes the multi-criteria search and returns the optimal itinerary.
+    ///
+    /// This is the most computationally expensive part of the process, involving
+    /// parallelized route scanning and transfer calculations.
+    ///
+    /// # Returns
+    /// * `Ok(Itinerary)` - The best path found based on arrival time.
+    /// * `Err(Error)` - Returns an error if no path exists or if the search
+    ///   parameters are invalid.
+    ///
+    /// # Performance
+    /// This method leverages the parallel optimizations in the underlying [`Repository`].
+    /// Execution time typically scales with the number of possible routes between
+    /// the origin and destination.
     pub fn solve(self) -> Result<Itinerary, self::Error> {
         let mut active = vec![None; self.repository.raptor_routes.len()];
         let mut state = State::new(self.repository);

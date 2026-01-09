@@ -183,7 +183,7 @@ impl Repository {
     /// Efficiently retrieves a slice of [`StopTime`] entries for a specific trip.
     ///
     /// This uses a pre-computed pointer slice (start/count) into the global
-    /// `stop_times` array for $O(1)$ access.
+    /// `stop_times` array for `O(1)` access.
     pub fn stop_times_by_trip_idx(&self, trip_idx: u32) -> &[StopTime] {
         let slice = self.trip_to_stop_slice[trip_idx as usize];
         let start = slice.start_idx as usize;
