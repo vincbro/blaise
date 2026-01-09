@@ -58,8 +58,9 @@ impl LegStop {
                             in_trip = true;
                         }
                         if in_trip {
+                            let stop = &repository.stops[stop_time.stop_idx as usize];
                             stops.push(LegStop {
-                                location: Location::Stop(stop_time.stop_id.clone()),
+                                location: Location::Stop(stop.id.clone()),
                                 departure_time: stop_time.departure_time,
                                 arrival_time: stop_time.arrival_time,
                             });

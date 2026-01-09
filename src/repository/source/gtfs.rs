@@ -106,11 +106,9 @@ impl Repository {
         let mut trips: Vec<Trip> = Vec::new();
         gtfs.stream_trips(|(i, trip)| {
             let route_index = self.route_lookup.get(trip.route_id.as_str()).unwrap();
-            let route_id = self.routes[*route_index as usize].id.clone();
             let value = Trip {
                 index: i as u32,
                 id: trip.trip_id.into(),
-                route_id: route_id.clone(),
                 route_idx: *route_index,
                 raptor_route_idx: 0,
                 headsign: trip.trip_headsign.map(|val| val.into()),
@@ -144,34 +142,27 @@ impl Repository {
             let from_stop = &self.stops[from_stop_idx as usize];
 
             let to_stop_idx = *self.stop_lookup.get(transfer.to_stop_id.as_str()).unwrap();
-            let to_stop = &self.stops[to_stop_idx as usize];
 
-            let (from_trip_id, from_trip_idx) = if let Some(trip_id) = transfer.from_trip_id {
+            let from_trip_idx = if let Some(trip_id) = transfer.from_trip_id {
                 let trip_idx = *self.trip_lookup.get(trip_id.as_str()).unwrap();
-                let trip_id = self.trips[trip_idx as usize].id.clone();
-                (Some(trip_id), Some(trip_idx))
+                Some(trip_idx)
             } else {
-                (None, None)
+                None
             };
 
-            let (to_trip_id, to_trip_idx) = if let Some(trip_id) = transfer.to_trip_id {
+            let to_trip_idx = if let Some(trip_id) = transfer.to_trip_id {
                 let trip_idx = *self.trip_lookup.get(trip_id.as_str()).unwrap();
-                let trip_id = self.trips[trip_idx as usize].id.clone();
-                (Some(trip_id), Some(trip_idx))
+                Some(trip_idx)
             } else {
-                (None, None)
+                None
             };
 
             stop_to_transfers[from_stop.index as usize].push(i as u32);
 
             let value = Transfer {
-                from_stop_id: from_stop.id.clone(),
                 from_stop_idx,
-                to_stop_id: to_stop.id.clone(),
                 to_stop_idx,
-                from_trip_id,
                 from_trip_idx,
-                to_trip_id,
                 to_trip_idx,
                 min_transfer_time: transfer.min_transfer_time.map(Duration::from_seconds),
             };
@@ -228,12 +219,9 @@ impl Repository {
 
             // TEMP
             let stop_idx = self.stop_lookup.get(stop_time.stop_id.as_str()).unwrap();
-            let stop = &self.stops[*stop_idx as usize];
 
             let mut value: StopTime = stop_time.into();
-            value.trip_id = trip.id.clone();
             value.trip_idx = *trip_idx;
-            value.stop_id = stop.id.clone();
             value.stop_idx = *stop_idx;
             buffer.push(value);
 
@@ -322,7 +310,7 @@ impl Repository {
                 let raptor = RaptorRoute {
                     index: index as u32,
                     route_idx: route.index,
-                    route_id: route.id.clone(),
+                    // route_id: route.id.clone(),
                     stops: key.into(),
                     trips: value.into(),
                 };

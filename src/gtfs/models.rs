@@ -148,9 +148,9 @@ impl From<GtfsStopTime> for StopTime {
     fn from(value: GtfsStopTime) -> Self {
         Self {
             index: u32::MAX,
-            trip_id: Default::default(),
+            // trip_id: Default::default(),
             trip_idx: u32::MAX,
-            stop_id: Default::default(),
+            // stop_id: Default::default(),
             stop_idx: u32::MAX,
             slice: Default::default(),
             internal_idx: u32::MAX,

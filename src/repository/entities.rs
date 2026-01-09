@@ -111,29 +111,22 @@ pub struct StopTime {
     pub index: u32,
     /// Internal index of the parent [`Trip`].
     pub trip_idx: u32,
-    pub trip_id: Arc<str>,
     /// Internal index of the associated [`Stop`].
     pub stop_idx: u32,
-    pub stop_id: Arc<str>,
     /// The order of this stop within the trip (starts from 1).
     pub sequence: u16,
     /// Pointer to the full range of stop times for the parent trip.
     pub slice: StopTimeSlice,
     /// Zero-based position of this stop within its specific trip.
     pub internal_idx: u32,
-
     /// Scheduled arrival time (stored as seconds since midnight).
     pub arrival_time: Time,
-
     /// Scheduled departure time (stored as seconds since midnight).
     pub departure_time: Time,
-
     /// Destination shown to passengers when at this stop.
     pub headsign: Option<Arc<str>>,
-
     /// Cumulative distance traveled along the trip's shape.
     pub dist_traveled: Option<Distance>,
-
     /// Policy for passenger boarding (Regular, No Pickup, etc.).
     pub pickup_type: StopAccessType,
     /// Policy for passenger alighting.
@@ -154,16 +147,12 @@ pub struct StopTimeSlice {
 /// A connection between two points in the network, often representing walking or shuttle legs.
 #[derive(Debug, Default, Clone)]
 pub struct Transfer {
-    pub from_stop_id: Arc<str>,
     pub from_stop_idx: u32,
-    pub to_stop_id: Arc<str>,
     pub to_stop_idx: u32,
 
     /// If present, this transfer is only valid when arriving on this specific trip.
-    pub from_trip_id: Option<Arc<str>>,
     pub from_trip_idx: Option<u32>,
     /// If present, this transfer is only valid when departing on this specific trip.
-    pub to_trip_id: Option<Arc<str>>,
     pub to_trip_idx: Option<u32>,
     /// The minimum time (in seconds) required to successfully complete this transfer.
     pub min_transfer_time: Option<Duration>,
@@ -175,7 +164,6 @@ pub struct Trip {
     pub index: u32,
     pub id: Arc<str>,
     /// Pointer to the parent [`Route`].
-    pub route_id: Arc<str>,
     pub route_idx: u32,
     /// Pointer to the optimized [`RaptorRoute`] used by the routing engine.
     pub raptor_route_idx: u32,
@@ -206,7 +194,6 @@ pub struct RaptorRoute {
     pub index: u32,
     /// Pointer back to the display-level [`Route`].
     pub route_idx: u32,
-    pub route_id: Arc<str>,
     /// List of stop indices served by this route in order.
     pub stops: Arc<[u32]>,
     /// List of trip indices that follow this stop sequence.

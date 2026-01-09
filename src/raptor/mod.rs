@@ -357,7 +357,7 @@ impl<'a> Raptor<'a> {
             Location::Area(id) => {
                 let area_idx = self
                     .repository
-                    .area_lo(id)
+                    .area_by_id(id)
                     .ok_or(self::Error::InvalidAreaID)?;
                 Ok(self.repository.coordinate_by_area_idx(area_idx.index))
             }
