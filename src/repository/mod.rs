@@ -164,7 +164,7 @@ impl Repository {
         &self.routes[route_idx as usize]
     }
 
-    /// Retrieves all scheduled trips for a specific route.
+    /// Retrieves all scheduled trips for a specific [`Route`].
     pub fn trips_by_route_idx(&self, route_idx: u32) -> Vec<&Trip> {
         self.route_to_trips[route_idx as usize]
             .iter()
@@ -172,7 +172,7 @@ impl Repository {
             .collect()
     }
 
-    /// Retrieves the full schedule (arrival/departure times) for every trip on a route.
+    /// Retrieves the full schedule (arrival/departure times) for every trip on a [`Route`].
     pub fn stop_times_by_route_idx(&self, route_idx: u32) -> Vec<&[StopTime]> {
         self.route_to_trips[route_idx as usize]
             .iter()

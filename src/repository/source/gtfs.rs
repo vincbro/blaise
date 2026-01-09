@@ -111,8 +111,8 @@ impl Repository {
                 index: i as u32,
                 id: trip.trip_id.into(),
                 route_id: route_id.clone(),
-                route_index: *route_index,
-                raptor_route_index: 0,
+                route_idx: *route_index,
+                raptor_route_idx: 0,
                 headsign: trip.trip_headsign.map(|val| val.into()),
                 short_name: trip.trip_short_name.map(|val| val.into()),
             };
@@ -321,7 +321,7 @@ impl Repository {
 
                 let raptor = RaptorRoute {
                     index: index as u32,
-                    route_index: route.index,
+                    route_idx: route.index,
                     route_id: route.id.clone(),
                     stops: key.into(),
                     trips: value.into(),
