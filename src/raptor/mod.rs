@@ -15,7 +15,7 @@ use crate::{
 };
 use rayon::prelude::*;
 use thiserror::Error;
-use tracing::debug;
+use tracing::{debug, warn};
 
 pub const MAX_ROUNDS: usize = 15;
 
@@ -153,6 +153,7 @@ impl<'a> Raptor<'a> {
         let mut round: usize = 1;
         loop {
             if round >= MAX_ROUNDS {
+                warn!("Hit round limit!");
                 break;
             }
             // Add a new round to the list
@@ -336,7 +337,7 @@ impl<'a> Raptor<'a> {
             let path = self.backtrack(state.parents, to_coord, target_stop, target_round)?;
             Ok(Itinerary::new(self.from, self.to, path, self.repository))
         } else {
-            Err(self::Error::FailedToBuildRoute)
+            Err(self::Error::NoRouteFound)
         }
     }
 
