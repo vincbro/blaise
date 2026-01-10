@@ -1,6 +1,6 @@
 services:
   blaise-server:
-    image: vincentbrodin/blaise:latest
+    image: vincbrod/blaise:latest
     container_name: blaise-server
     ports:
       - "3000:3000"

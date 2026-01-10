@@ -15,7 +15,7 @@ It allows you to integrate high-performance, local-first transit routing and sea
 ### Docker
 The fastest way to get an instance running.
 ```bash
-docker run --name blaise-server -p 3000:3000 vincentbrodin/blaise:latest
+docker run --name blaise-server -p 3000:3000 vincbrod/blaise:latest
 ```
 
 ### Docker compose
@@ -24,7 +24,7 @@ Recommended for persistent data management. Create a `compose.yaml` and run `doc
 ```yaml
 services:
   blaise-server:
-    image: vincentbrodin/blaise:latest
+    image: vincbrod/blaise:latest
     container_name: blaise-server
     ports:
       - "3000:3000"
@@ -40,7 +40,7 @@ services:
 ```bash
 mkdir blaise-server
 cd bliase-server
-wget https://raw.githubusercontent.com/VincentBrodin/blaise/refs/heads/main/compose.yaml
+wget https://raw.githubusercontent.com/vincbro/blaise/refs/heads/main/compose.yaml
 docker compose up -d
 ```
 
@@ -49,7 +49,7 @@ docker compose up -d
 **Prerequisite**: Rust/Cargo installed.
 
 ```bash
-git clone https://github.com/VincentBrodin/blaise.git
+git clone https://github.com/vincbro/blaise.git
 cd blaise
 cargo build -r -p server
 ```

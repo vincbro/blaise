@@ -9,7 +9,7 @@ WORKDIR /usr/src/blaise
 LABEL org.opencontainers.image.title="Blaise Server"
 LABEL org.opencontainers.image.description="An easy-to-use, fully local engine for public transit data with a strong focus on performance."
 LABEL org.opencontainers.image.authors="Vincent Brodin"
-LABEL org.opencontainers.image.source="https://github.com/VincentBrodin/blaise"
+LABEL org.opencontainers.image.source="https://github.com/vincbro/blaise"
 LABEL org.opencontainers.image.licenses="MIT"
 
 # Copy lib
