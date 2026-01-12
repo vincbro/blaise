@@ -1,7 +1,9 @@
-pub mod itinerary;
-pub mod location;
-pub mod state;
+mod allocator;
+mod itinerary;
+mod location;
+mod state;
 
+pub use allocator::*;
 pub use itinerary::*;
 pub use location::*;
 pub use state::*;
@@ -52,6 +54,7 @@ pub struct Raptor<'a> {
     to: Location,
     departure: Time,
     walk_distance: Distance,
+    allocator: Option<Allocator>,
 }
 
 impl<'a> Raptor<'a> {
@@ -72,7 +75,13 @@ impl<'a> Raptor<'a> {
             to,
             departure: Time::now(),
             walk_distance: 500.0.into(),
+            allocator: None,
         }
+    }
+
+    pub fn with_allocator(mut self, allocator: Allocator) -> Self {
+        self.allocator = Some(allocator);
+        self
     }
 
     /// Sets the earliest time the journey can begin.
@@ -83,6 +92,27 @@ impl<'a> Raptor<'a> {
     pub fn departure_at(mut self, departure: Time) -> Self {
         self.departure = departure;
         self
+    }
+
+    /// Wrapper around slove_with_allocator but creates the allocator internally.
+    ///
+    /// Executes the multi-criteria search and returns the optimal itinerary.
+    ///
+    /// This is the most computationally expensive part of the process, involving
+    /// parallelized route scanning and transfer calculations.
+    ///
+    /// # Returns
+    /// * `Ok(Itinerary)` - The best path found based on arrival time.
+    /// * `Err(Error)` - Returns an error if no path exists or if the search
+    ///   parameters are invalid.
+    ///
+    /// # Performance
+    /// This method leverages the parallel optimizations in the underlying [`Repository`].
+    /// Execution time typically scales with the number of possible routes between
+    /// the origin and destination.
+    pub fn solve(self) -> Result<Itinerary, self::Error> {
+        let mut allocator = Allocator::new(self.repository);
+        self.solve_with_allocator(&mut allocator)
     }
 
     /// Executes the multi-criteria search and returns the optimal itinerary.
@@ -99,9 +129,8 @@ impl<'a> Raptor<'a> {
     /// This method leverages the parallel optimizations in the underlying [`Repository`].
     /// Execution time typically scales with the number of possible routes between
     /// the origin and destination.
-    pub fn solve(self) -> Result<Itinerary, self::Error> {
+    pub fn solve_with_allocator(self, allocator: &mut Allocator) -> Result<Itinerary, self::Error> {
         let mut active = vec![None; self.repository.raptor_routes.len()];
-        let mut state = State::new(self.repository);
 
         let from_coord = self.coordinate(&self.from)?;
         let updates = self
@@ -123,8 +152,8 @@ impl<'a> Raptor<'a> {
                     ),
                 )
             });
-        state.updates.par_extend(updates);
-        state.apply_updates(0);
+        allocator.updates.par_extend(updates);
+        allocator.run_updates(0);
 
         // Targets
         let to_coord = self.coordinate(&self.to)?;
@@ -150,15 +179,14 @@ impl<'a> Raptor<'a> {
                 warn!("Hit round limit!");
                 break;
             }
-            // Add a new round to the list
-            state.switch_labels();
+            allocator.swap_labels();
 
-            let marked_stops = state.marked_stops();
+            let marked_stops = allocator.get_marked_stops();
             debug!("Got {} marked stops", marked_stops.len());
             if marked_stops.is_empty() {
                 break;
             }
-            state.marked.fill(false);
+            allocator.marked_stops.fill(false);
 
             // Pre process
             active.fill(None);
@@ -172,10 +200,10 @@ impl<'a> Raptor<'a> {
                 // in this case it will be 1
                 // 0 1 2 3 4 5 6 7 8
                 //   ^   ^     ^
-                let services = self.routes_serving_stop(stop_idx as u32);
-                for service in services.into_iter() {
-                    let r_idx = service.route_idx as usize;
-                    let p_idx = service.idx_in_route;
+                let routes = self.routes_serving_stop(stop_idx as u32);
+                for route in routes.into_iter() {
+                    let r_idx = route.route_idx as usize;
+                    let p_idx = route.idx_in_route;
                     if p_idx < active[r_idx].unwrap_or(u32::MAX) {
                         active[r_idx] = Some(p_idx);
                     }
@@ -204,7 +232,7 @@ impl<'a> Raptor<'a> {
                         if let Some(trip) = active_trip
                             && let arrival_time = self.get_arrival_time(trip.index, i)
                             && arrival_time
-                                < state.tau_star[*stop_idx as usize].unwrap_or(u32::MAX.into())
+                                < allocator.tau_star[*stop_idx as usize].unwrap_or(u32::MAX.into())
                             && arrival_time < target_best
                         {
                             updates_buffer.push(Update::new(
@@ -223,7 +251,7 @@ impl<'a> Raptor<'a> {
                         // PART B
                         // See if we could have catched an earlier trip to get to were we currently are
                         let prev_round_arrival =
-                            state.prev_labels[*stop_idx as usize].unwrap_or(u32::MAX.into());
+                            allocator.prev_labels[*stop_idx as usize].unwrap_or(u32::MAX.into());
                         let current_trip_dep = active_trip
                             .map(|t| self.get_departure_time(t.index, i))
                             .unwrap_or(u32::MAX.into());
@@ -244,21 +272,23 @@ impl<'a> Raptor<'a> {
                     updates_buffer
                 })
                 .flatten();
-            state.updates.par_extend(updates);
-            state.apply_updates(round);
+            allocator.updates.par_extend(updates);
+            allocator.run_updates(round);
 
-            let updates = state
-                .marked_stops()
+            let updates = allocator
+                .get_marked_stops()
                 .into_par_iter()
                 .map(|stop_idx| {
-                    let mut updates: Vec<Update> = vec![];
+                    let mut updates: Vec<Update> = Vec::with_capacity(64);
                     // All the possible transfers
                     for transfer in self.repository.transfers_by_stop_idx(stop_idx as u32) {
-                        let departure_time = state.curr_labels[stop_idx].unwrap_or(u32::MAX.into());
+                        let departure_time =
+                            allocator.curr_labels[stop_idx].unwrap_or(u32::MAX.into());
                         let arrival_time = departure_time + self.transfer_duration(transfer);
                         if arrival_time
-                            < state.tau_star[transfer.to_stop_idx as usize]
+                            < allocator.tau_star[transfer.to_stop_idx as usize]
                                 .unwrap_or(u32::MAX.into())
+                            && arrival_time < target_best
                         {
                             updates.push(Update::new(
                                 transfer.to_stop_idx,
@@ -282,11 +312,12 @@ impl<'a> Raptor<'a> {
                                 .coordinate
                                 .network_distance(&next_stop.coordinate);
                             let departure_time =
-                                state.curr_labels[stop_idx].unwrap_or(u32::MAX.into());
+                                allocator.curr_labels[stop_idx].unwrap_or(u32::MAX.into());
                             let arrival_time = departure_time + time_to_walk(walking_distance);
                             if arrival_time
-                                < state.tau_star[next_stop.index as usize]
+                                < allocator.tau_star[next_stop.index as usize]
                                     .unwrap_or(u32::MAX.into())
+                                && arrival_time < target_best
                             {
                                 updates.push(Update::new(
                                     next_stop.index,
@@ -303,13 +334,13 @@ impl<'a> Raptor<'a> {
                     updates
                 })
                 .flatten();
-            state.updates.par_extend(updates);
-            state.apply_updates(round);
+            allocator.updates.par_extend(updates);
+            allocator.run_updates(round);
 
             target_stops
                 .iter()
                 .filter_map(|(stop_idx, walk_duration)| {
-                    let tau_star = state.tau_star[*stop_idx];
+                    let tau_star = allocator.tau_star[*stop_idx];
                     tau_star.map(|tau_star| (stop_idx, walk_duration, tau_star))
                 })
                 .for_each(|(stop_idx, walk_duration, tau_star)| {
@@ -326,7 +357,7 @@ impl<'a> Raptor<'a> {
         if let Some(target_stop) = target_best_stop
             && let Some(target_round) = target_best_round
         {
-            let path = self.backtrack(state.parents, to_coord, target_stop, target_round)?;
+            let path = self.backtrack(&allocator, to_coord, target_stop, target_round)?;
             Ok(Itinerary::new(self.from, self.to, path, self.repository))
         } else {
             Err(self::Error::NoRouteFound)
@@ -335,7 +366,7 @@ impl<'a> Raptor<'a> {
 
     fn backtrack(
         &self,
-        parents: Vec<Option<Parent>>,
+        allocator: &Allocator,
         to_coord: Coordinate,
         target_stop: usize,
         target_round: usize,
@@ -344,10 +375,9 @@ impl<'a> Raptor<'a> {
 
         let mut current_point: Point = (target_stop as u32).into();
         let mut current_round = target_round;
-        let stop_count = self.repository.stops.len();
 
         while let Point::Stop(current_stop) = current_point {
-            if let Some(parent) = &parents[flat_matrix(current_round, current_stop, stop_count)] {
+            if let Some(parent) = &allocator.get_parents(current_round)[current_stop as usize] {
                 path.push(*parent);
                 current_point = parent.from;
                 // If we are on a transit we decrese the round else we don't since

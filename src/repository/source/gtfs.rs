@@ -3,7 +3,7 @@ use crate::{
     repository::{
         Area, Cell, RaptorRoute, Repository, Route, Stop, StopTime, StopTimeSlice, Transfer, Trip,
     },
-    shared::time::Duration,
+    shared::{AVERAGE_STOP_DISTANCE, time::Duration},
 };
 use rayon::prelude::*;
 use std::{collections::HashMap, sync::Arc, time::Instant};
@@ -335,7 +335,7 @@ impl Repository {
             .par_iter()
             .map(|sa| {
                 let nearby: Vec<u32> = self
-                    .stops_by_coordinate(&sa.coordinate, 500.0.into())
+                    .stops_by_coordinate(&sa.coordinate, AVERAGE_STOP_DISTANCE)
                     .into_iter()
                     .filter_map(|sb| {
                         if sa.index != sb.index {

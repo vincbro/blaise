@@ -2,11 +2,10 @@ mod entities;
 pub mod source;
 
 pub use entities::*;
-use rayon::prelude::*;
 use std::{collections::HashMap, sync::Arc};
 
 use crate::{
-    raptor::{Raptor, location::Location},
+    raptor::{Location, Raptor},
     shared::{
         self,
         geo::{AVERAGE_STOP_DISTANCE, Coordinate, Distance},
@@ -198,7 +197,7 @@ impl Repository {
     /// This uses a grid-based cell lookup for performance, followed by an
     /// exact distance filter using the network distance metric.
     pub fn stops_by_coordinate(&self, coordinate: &Coordinate, distance: Distance) -> Vec<&Stop> {
-        let reach = (distance / AVERAGE_STOP_DISTANCE).as_meters().ceil().abs() as i32;
+        let reach = (distance / AVERAGE_STOP_DISTANCE).as_meters().ceil().abs() as i32 + 1;
         let (origin_x, origin_y) = coordinate.to_cell();
         (-reach..=reach)
             .flat_map(|x| {
