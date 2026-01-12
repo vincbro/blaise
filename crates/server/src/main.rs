@@ -2,7 +2,7 @@ mod api;
 mod dto;
 mod state;
 
-use crate::state::AppState;
+use crate::state::{AllocatorPool, AppState};
 use axum::routing::get;
 use blaise::prelude::*;
 use std::{env, path::Path, process, sync::Arc, time::Instant};
@@ -31,6 +31,7 @@ async fn main() {
     };
     let app_state = AppState {
         repository: RwLock::new(None),
+        allocator_pool: RwLock::new(None),
         gtfs_data_path,
     };
 
@@ -39,6 +40,8 @@ async fn main() {
         let now = Instant::now();
         let data = Gtfs::new().from_zip(&app_state.gtfs_data_path).unwrap();
         let repo = Repository::new().load_gtfs(data).unwrap();
+        let pool = AllocatorPool::new(2, &repo);
+        let _ = app_state.allocator_pool.write().await.replace(pool);
         let _ = app_state.repository.write().await.replace(repo);
         info!("Loading data took {:?}", now.elapsed());
     } else {

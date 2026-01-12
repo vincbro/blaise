@@ -20,7 +20,9 @@ pub async fn routing(
     Query(params): Query<HashMap<String, String>>,
     State(state): State<Arc<AppState>>,
 ) -> Result<Response, StatusCode> {
-    if let Some(repository) = &*state.repository.read().await {
+    if let Some(repository) = &*state.repository.read().await
+        && let Some(pool) = &*state.allocator_pool.read().await
+    {
         let from = if let Some(from) = params.get("from") {
             location_from_str(repository, from)?
         } else {
@@ -38,8 +40,12 @@ pub async fn routing(
             Time::now()
         };
 
+        let mut gaurd = pool.get_safe(repository);
+        let allocator = gaurd.allocator.as_mut().expect("This should never fail");
         let raptor = Raptor::new(repository, from, to).departure_at(departure_at);
-        let itinerary = raptor.solve().unwrap();
+        let itinerary = raptor
+            .solve_with_allocator(allocator)
+            .expect("Failed to unwrap allocator");
         itinerary.legs.iter().for_each(|leg| {
             let leg_type = leg_type_str(&leg.leg_type);
             if let Location::Stop(from_stop) = &leg.from

@@ -17,3 +17,4 @@ tracing-subscriber = "0.3.22"
 blaise.workspace = true
 reqwest = { version = "0.13.1", features = ["stream", "gzip"] }
 futures-util = "0.3.31"
+crossbeam-queue = "0.3.12"

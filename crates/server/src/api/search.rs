@@ -49,7 +49,7 @@ pub async fn near(
                     Ok(value) => Distance::from_meters(value),
                     Err(_) => return Err(StatusCode::BAD_REQUEST),
                 },
-                None => Distance::from_meters(500.0),
+                None => AVERAGE_STOP_DISTANCE,
             };
             let coordinate = Coordinate::from_str(query).map_err(|_| StatusCode::BAD_REQUEST)?;
             let mut result: Vec<_> = repository
