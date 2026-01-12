@@ -44,7 +44,7 @@ To find a path, you create a `Raptor` instance. This requires a reference to you
 ```rust
 use blaise::raptor::{Raptor, Location};
 use blaise::shared::geo::Coordinate;
-use blaise::shared::time::Time;
+use blaise::shared::Time;
 
 let from = Location::Stop("STOP_ID_1".into());
 let to = Location::Coordinate(Coordinate { latitude: 59.3, longitude: 18.0 });

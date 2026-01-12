@@ -72,6 +72,8 @@ pub struct Repository {
     route_to_raptors: Box<[Box<[u32]>]>,
     /// Maps a stop index to all `RaptorRoute` indices that serve it.
     stop_to_raptors: Box<[Box<[u32]>]>,
+    /// Maps a stop index to all walkable stops near it.
+    stop_to_walk_stop: Box<[Box<[u32]>]>,
 }
 
 impl Repository {
@@ -199,7 +201,6 @@ impl Repository {
         let reach = (distance / AVERAGE_STOP_DISTANCE).as_meters().ceil().abs() as i32;
         let (origin_x, origin_y) = coordinate.to_cell();
         (-reach..=reach)
-            .into_par_iter()
             .flat_map(|x| {
                 (-reach..=reach)
                     .flat_map(move |y| {
@@ -229,7 +230,7 @@ impl Repository {
     pub fn areas_by_coordinate(&self, coordinate: &Coordinate, distance: Distance) -> Vec<&Area> {
         let stops = self.stops_by_coordinate(coordinate, distance);
         stops
-            .into_par_iter()
+            .into_iter()
             .filter_map(|stop| self.area_by_stop_idx(stop.index))
             .collect()
     }
@@ -248,6 +249,15 @@ impl Repository {
         self.stop_to_raptors[stop_idx as usize]
             .iter()
             .map(|raptor_idx| &self.raptor_routes[*raptor_idx as usize])
+            .collect()
+    }
+
+    /// Returns all possible walkable stops by stop_idx.  
+    pub fn nearby_stops_by_stop_idx(&self, stop_idx: u32) -> Vec<&Stop> {
+        let stops = &self.stop_to_walk_stop[stop_idx as usize];
+        stops
+            .iter()
+            .map(|stop_idx| &self.stops[*stop_idx as usize])
             .collect()
     }
 

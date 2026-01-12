@@ -1,6 +1,3 @@
-# ... (after your FROM statement)
-# ...
-
 # BUILD
 FROM rust:1.92-bullseye AS builder
 WORKDIR /usr/src/blaise
@@ -15,6 +12,7 @@ LABEL org.opencontainers.image.licenses="MIT"
 # Copy lib
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src 
+COPY benches ./benches 
 
 # Copy server
 RUN mkdir -p crates/server

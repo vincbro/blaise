@@ -80,12 +80,6 @@ impl<'a> Raptor<'a> {
     /// The algorithm will only consider trips that depart at or after this time.
     /// Note that earlier departure times may result in different optimal paths
     /// even for the same origin/destination.
-    ///
-    /// # Example
-    /// ```rust
-    /// let router = Raptor::new(repo, start, end)
-    ///     .departure_at(Time::from_hms(8, 30, 0));
-    /// ```
     pub fn departure_at(mut self, departure: Time) -> Self {
         self.departure = departure;
         self
@@ -279,12 +273,10 @@ impl<'a> Raptor<'a> {
                         }
                     }
 
-                    // All the possible walks
                     let current_stop = &self.repository.stops[stop_idx];
                     self.repository
-                        .stops_by_coordinate(&current_stop.coordinate, self.walk_distance)
+                        .nearby_stops_by_stop_idx(current_stop.index)
                         .into_iter()
-                        .filter(|next_stop| next_stop.index != current_stop.index)
                         .for_each(|next_stop| {
                             let walking_distance = current_stop
                                 .coordinate
@@ -496,13 +488,12 @@ impl<'a> Raptor<'a> {
     }
 
     fn transfer_duration(&self, transfer: &Transfer) -> Duration {
-        let from = &self.repository.stops[transfer.from_stop_idx as usize];
-        let to = &self.repository.stops[transfer.to_stop_idx as usize];
-        let walk_duration = time_to_walk(from.coordinate.network_distance(&to.coordinate));
         if let Some(duration) = transfer.min_transfer_time {
-            duration + walk_duration
+            duration
         } else {
-            walk_duration
+            let from = &self.repository.stops[transfer.from_stop_idx as usize];
+            let to = &self.repository.stops[transfer.to_stop_idx as usize];
+            time_to_walk(from.coordinate.network_distance(&to.coordinate))
         }
     }
 }

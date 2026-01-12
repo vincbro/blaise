@@ -20,6 +20,7 @@ impl Repository {
         self.load_stop_times(&mut gtfs)?;
         self.generate_geo_hash();
         self.generate_raptor_routes();
+        self.generate_walks();
         Ok(self)
     }
 
@@ -322,9 +323,45 @@ impl Repository {
             route_to_raptors.into_iter().map(|val| val.into()).collect();
         self.route_to_raptors = route_to_raptors;
 
-        let stop_to_raptors: Box<[Box<[u32]>]> =
-            stop_to_raptors.into_iter().map(|val| val.into()).collect();
-        self.stop_to_raptors = stop_to_raptors;
+        self.stop_to_raptors = stop_to_raptors.into_iter().map(|val| val.into()).collect();
         debug!("Generating raptor routes took {:?}", now.elapsed());
+    }
+
+    fn generate_walks(&mut self) {
+        debug!("Generating stop to walkable stop mapping...");
+        let now = Instant::now();
+        let stops: Vec<(u32, Vec<u32>)> = self
+            .stops
+            .par_iter()
+            .map(|sa| {
+                let nearby: Vec<u32> = self
+                    .stops_by_coordinate(&sa.coordinate, 500.0.into())
+                    .into_iter()
+                    .filter_map(|sb| {
+                        if sa.index != sb.index {
+                            Some(sb.index)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+
+                (sa.index, nearby)
+            })
+            .collect();
+
+        let mut stop_to_walk_stop: Vec<Vec<u32>> = vec![Vec::new(); self.stops.len()];
+        stops.into_iter().for_each(|(idx, stops)| {
+            stop_to_walk_stop[idx as usize].extend(stops);
+        });
+
+        self.stop_to_walk_stop = stop_to_walk_stop
+            .into_iter()
+            .map(|val| val.into())
+            .collect();
+        debug!(
+            "Generating stop to walkable stop mapping took {:?}",
+            now.elapsed()
+        );
     }
 }

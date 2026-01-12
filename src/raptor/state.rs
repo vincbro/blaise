@@ -153,3 +153,22 @@ impl State {
 pub fn flat_matrix(outer: usize, inner: u32, count: usize) -> usize {
     (outer * count) + inner as usize
 }
+
+#[test]
+fn flat_matrix_test() {
+    let a = flat_matrix(0, 0, 10);
+    let b = flat_matrix(0, 1, 10);
+    assert_eq!(a + 1, b);
+
+    let a = flat_matrix(1, 0, 10);
+    let b = flat_matrix(1, 1, 10);
+    assert_eq!(a + 1, b);
+
+    let a = flat_matrix(2, 0, 10);
+    let b = flat_matrix(2, 1, 10);
+    assert_eq!(a + 1, b);
+
+    let a = flat_matrix(0, 0, 10);
+    let b = flat_matrix(1, 0, 10);
+    assert_eq!(a + 10, b);
+}
