@@ -47,7 +47,7 @@ pub async fn routing(
             .solve_with_allocator(allocator)
             .expect("Failed to unwrap allocator");
         itinerary.legs.iter().for_each(|leg| {
-            let leg_type = leg_type_str(&leg.leg_type);
+            let leg_type = leg_type_str(&leg.leg_type, repository);
             if let Location::Stop(from_stop) = &leg.from
                 && let Location::Stop(to_stop) = &leg.to
             {
@@ -113,9 +113,15 @@ fn location_from_str(repo: &Repository, str: &str) -> Result<Location, StatusCod
     }
 }
 
-fn leg_type_str(parent_type: &LegType) -> String {
+fn leg_type_str(parent_type: &LegType, repository: &Repository) -> String {
     match parent_type {
-        LegType::Transit => "Travel".into(),
+        LegType::Transit(trip_idx) => {
+            let trip = &repository.trips[*trip_idx as usize];
+            let route = &repository.routes[trip.route_idx as usize];
+            let long_name = &route.route_long_name.clone().unwrap_or("UNKOWN".into());
+            let short_name = &route.route_short_name.clone().unwrap_or("UNKOWN".into());
+            format!("Travel with {}({})", long_name, short_name)
+        }
         LegType::Transfer => "Transfer".into(),
         LegType::Walk => "Walk".into(),
     }

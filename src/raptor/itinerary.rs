@@ -20,7 +20,7 @@ pub struct Leg {
 
 #[derive(Debug, Clone, Copy, Serialize)]
 pub enum LegType {
-    Transit,
+    Transit(u32),
     Transfer,
     Walk,
 }
@@ -28,7 +28,7 @@ pub enum LegType {
 impl From<ParentType> for LegType {
     fn from(value: ParentType) -> Self {
         match value {
-            ParentType::Transit(_) => Self::Transit,
+            ParentType::Transit(trip_idx) => Self::Transit(trip_idx),
             ParentType::Transfer => Self::Transfer,
             ParentType::Walk => Self::Walk,
         }
