@@ -1,4 +1,4 @@
-use crate::state::AppState;
+use crate::state::{AllocatorPool, AppState};
 use axum::{
     extract::{Query, State},
     http::StatusCode,
@@ -91,7 +91,8 @@ pub async fn fetch_url(
             error!("Failed load gtfs file: {err}");
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
-
+        let pool = AllocatorPool::new(state.allocator_count, &repo);
+        let _ = state.allocator_pool.write().await.replace(pool);
         let _ = state.repository.write().await.replace(repo);
         Ok(().into_response())
     } else {

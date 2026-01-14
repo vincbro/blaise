@@ -357,7 +357,7 @@ impl<'a> Raptor<'a> {
         if let Some(target_stop) = target_best_stop
             && let Some(target_round) = target_best_round
         {
-            let path = self.backtrack(&allocator, to_coord, target_stop, target_round)?;
+            let path = self.backtrack(allocator, to_coord, target_stop, target_round)?;
             Ok(Itinerary::new(self.from, self.to, path, self.repository))
         } else {
             Err(self::Error::NoRouteFound)

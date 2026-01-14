@@ -30,6 +30,7 @@ services:
       - "3000:3000"
     environment:
       - GTFS_DATA_PATH=/app/data/GTFS.zip
+      - ALLOCATOR_COUNT=32
     volumes:
       - ./gtfs_data:/app/data
     restart: unless-stopped
@@ -53,6 +54,17 @@ git clone https://github.com/vincbro/blaise.git
 cd blaise
 cargo build -r -p server
 ```
+
+## Enviroment variables
+### GTFS_DATA_PATH
+This is were *blaise* will look for and store the GTFS data.
+
+### ALLOCATOR_COUNT
+To improve performance *blaise* will pre allocate most of the memory needed for the raptor algorithm to run.
+
+
+**BE AWARE**, setting this number to high will use large amounts of memory. Start low and see how far you can get.
+
 
 ## Endpoints
 

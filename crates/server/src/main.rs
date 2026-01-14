@@ -10,6 +10,7 @@ use tokio::sync::RwLock;
 use tracing::{Level, error, info, warn};
 
 const PORT: u32 = 3000;
+const DEFAULT_ALLOC_COUNT: usize = 32;
 
 #[tokio::main]
 async fn main() {
@@ -22,6 +23,7 @@ async fn main() {
     let start_logo = include_str!("../start_logo.txt");
     println!("{}", start_logo);
 
+    // Load env vars
     let gtfs_data_path = match env::var("GTFS_DATA_PATH") {
         Ok(path_str) => Path::new(&path_str).to_owned(),
         Err(err) => {
@@ -29,9 +31,15 @@ async fn main() {
             process::exit(1);
         }
     };
+
+    let alloc_count = env::var("ALLOCATOR_COUNT")
+        .map(|value| value.parse().unwrap_or(DEFAULT_ALLOC_COUNT))
+        .unwrap_or(DEFAULT_ALLOC_COUNT);
+
     let app_state = AppState {
         repository: RwLock::new(None),
         allocator_pool: RwLock::new(None),
+        allocator_count: alloc_count,
         gtfs_data_path,
     };
 
@@ -40,7 +48,7 @@ async fn main() {
         let now = Instant::now();
         let data = Gtfs::new().from_zip(&app_state.gtfs_data_path).unwrap();
         let repo = Repository::new().load_gtfs(data).unwrap();
-        let pool = AllocatorPool::new(2, &repo);
+        let pool = AllocatorPool::new(alloc_count, &repo);
         let _ = app_state.allocator_pool.write().await.replace(pool);
         let _ = app_state.repository.write().await.replace(repo);
         info!("Loading data took {:?}", now.elapsed());
