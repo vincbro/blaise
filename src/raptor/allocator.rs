@@ -21,6 +21,8 @@ pub struct Allocator {
     pub(crate) parents: Vec<Option<Parent>>,
     // Holds a buffer off updates
     pub(crate) updates: Vec<Update>,
+    // Holds the route and which stop in that route we should start exploring from.
+    pub(crate) active: Vec<Option<u32>>,
     pub(crate) stop_count: usize,
 }
 
@@ -33,6 +35,7 @@ impl Allocator {
             curr_labels: vec![None; repository.stops.len()],
             parents: vec![None; repository.stops.len() * MAX_ROUNDS],
             updates: Vec::with_capacity(1024),
+            active: vec![None; repository.raptor_routes.len()],
             stop_count: repository.stops.len(),
         }
     }
@@ -43,6 +46,7 @@ impl Allocator {
         self.prev_labels.fill(None);
         self.curr_labels.fill(None);
         self.parents.fill(None);
+        self.active.fill(None);
         self.updates.clear();
     }
 

@@ -130,8 +130,6 @@ impl<'a> Raptor<'a> {
     /// Execution time typically scales with the number of possible routes between
     /// the origin and destination.
     pub fn solve_with_allocator(self, allocator: &mut Allocator) -> Result<Itinerary, self::Error> {
-        let mut active = vec![None; self.repository.raptor_routes.len()];
-
         let from_coord = self.coordinate(&self.from)?;
         let updates = self
             .repository
@@ -189,7 +187,7 @@ impl<'a> Raptor<'a> {
             allocator.marked_stops.fill(false);
 
             // Pre process
-            active.fill(None);
+            allocator.active.fill(None);
             marked_stops.into_iter().for_each(|stop_idx| {
                 // We look at all the routes that serve a stop
                 // for each route that serve a route we store the earliest stop in that route
@@ -204,12 +202,13 @@ impl<'a> Raptor<'a> {
                 for route in routes.into_iter() {
                     let r_idx = route.route_idx as usize;
                     let p_idx = route.idx_in_route;
-                    if p_idx < active[r_idx].unwrap_or(u32::MAX) {
-                        active[r_idx] = Some(p_idx);
+                    if p_idx < allocator.active[r_idx].unwrap_or(u32::MAX) {
+                        allocator.active[r_idx] = Some(p_idx);
                     }
                 }
             });
-            let updates = active
+            let updates = allocator
+                .active
                 .par_iter()
                 .enumerate()
                 .filter_map(|(r_idx, p_idx)| p_idx.map(|p_idx| (r_idx, p_idx)))
