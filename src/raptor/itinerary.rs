@@ -20,7 +20,7 @@ pub struct Leg {
 
 #[derive(Debug, Clone, Copy, Serialize)]
 pub enum LegType {
-    Transit,
+    Transit(u32),
     Transfer,
     Walk,
 }
@@ -28,7 +28,7 @@ pub enum LegType {
 impl From<ParentType> for LegType {
     fn from(value: ParentType) -> Self {
         match value {
-            ParentType::Transit(_) => Self::Transit,
+            ParentType::Transit(trip_idx) => Self::Transit(trip_idx),
             ParentType::Transfer => Self::Transfer,
             ParentType::Walk => Self::Walk,
         }
@@ -47,7 +47,7 @@ impl LegStop {
         match parent.parent_type {
             ParentType::Transit(trip_idx) => {
                 let trip = &repository.trips[trip_idx as usize];
-                let stop_times = repository.stop_times_by_trip_id(&trip.id).unwrap();
+                let stop_times = repository.stop_times_by_trip_idx(trip.index);
                 let mut stops = Vec::with_capacity(stop_times.len());
                 if let Point::Stop(from_idx) = parent.from
                     && let Point::Stop(to_idx) = parent.to
@@ -58,8 +58,9 @@ impl LegStop {
                             in_trip = true;
                         }
                         if in_trip {
+                            let stop = &repository.stops[stop_time.stop_idx as usize];
                             stops.push(LegStop {
-                                location: Location::Stop(stop_time.stop_id.clone()),
+                                location: Location::Stop(stop.id.clone()),
                                 departure_time: stop_time.departure_time,
                                 arrival_time: stop_time.arrival_time,
                             });

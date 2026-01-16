@@ -1,10 +1,10 @@
-use crate::state::AppState;
+use crate::state::{AllocatorPool, AppState};
 use axum::{
     extract::{Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use blaise::{gtfs::Gtfs, repository::Repository};
+use blaise::prelude::*;
 use futures_util::StreamExt;
 use reqwest::header::ACCEPT_ENCODING;
 use std::{collections::HashMap, fs, path::Path, sync::Arc};
@@ -91,7 +91,8 @@ pub async fn fetch_url(
             error!("Failed load gtfs file: {err}");
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
-
+        let pool = AllocatorPool::new(state.allocator_count, &repo);
+        let _ = state.allocator_pool.write().await.replace(pool);
         let _ = state.repository.write().await.replace(repo);
         Ok(().into_response())
     } else {

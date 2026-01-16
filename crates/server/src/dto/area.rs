@@ -16,8 +16,7 @@ impl AreaDto {
         let id = area.id.to_string();
         let name = area.name.to_string();
         let coordinate: Coordinate = repository
-            .stops_by_area_id(&area.id)
-            .unwrap()
+            .stops_by_area_idx(area.index)
             .into_iter()
             .map(|stop| stop.coordinate)
             .sum();

@@ -2,6 +2,9 @@ pub(crate) mod fuzzy;
 pub mod geo;
 pub mod time;
 
+pub use geo::*;
+pub use time::*;
+
 use rayon::prelude::*;
 use std::cmp::Ordering;
 

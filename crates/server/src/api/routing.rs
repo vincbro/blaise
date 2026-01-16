@@ -6,9 +6,8 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use blaise::{
-    raptor::{Raptor, itinerary::LegType, location::Location},
-    repository::Repository,
-    shared::{geo::Coordinate, time::Time},
+    prelude::*,
+    raptor::{LegType, Location, Raptor},
 };
 use std::{
     collections::HashMap,
@@ -21,7 +20,9 @@ pub async fn routing(
     Query(params): Query<HashMap<String, String>>,
     State(state): State<Arc<AppState>>,
 ) -> Result<Response, StatusCode> {
-    if let Some(repository) = &*state.repository.read().await {
+    if let Some(repository) = &*state.repository.read().await
+        && let Some(pool) = &*state.allocator_pool.read().await
+    {
         let from = if let Some(from) = params.get("from") {
             location_from_str(repository, from)?
         } else {
@@ -33,11 +34,20 @@ pub async fn routing(
             return Err(StatusCode::BAD_REQUEST);
         };
 
-        let raptor =
-            Raptor::new(repository, from, to).departure_at(Time::from_hms("16:00:00").unwrap());
-        let itinerary = raptor.solve().unwrap();
+        let departure_at = if let Some(departure_at) = params.get("departure_at") {
+            Time::from_hms(departure_at).ok_or(StatusCode::BAD_REQUEST)?
+        } else {
+            Time::now()
+        };
+
+        let mut gaurd = pool.get_safe(repository);
+        let allocator = gaurd.allocator.as_mut().expect("This should never fail");
+        let raptor = Raptor::new(repository, from, to).departure_at(departure_at);
+        let itinerary = raptor
+            .solve_with_allocator(allocator)
+            .expect("Failed to unwrap allocator");
         itinerary.legs.iter().for_each(|leg| {
-            let leg_type = leg_type_str(&leg.leg_type);
+            let leg_type = leg_type_str(&leg.leg_type, repository);
             if let Location::Stop(from_stop) = &leg.from
                 && let Location::Stop(to_stop) = &leg.to
             {
@@ -103,9 +113,15 @@ fn location_from_str(repo: &Repository, str: &str) -> Result<Location, StatusCod
     }
 }
 
-fn leg_type_str(parent_type: &LegType) -> String {
+fn leg_type_str(parent_type: &LegType, repository: &Repository) -> String {
     match parent_type {
-        LegType::Transit => "Travel".into(),
+        LegType::Transit(trip_idx) => {
+            let trip = &repository.trips[*trip_idx as usize];
+            let route = &repository.routes[trip.route_idx as usize];
+            let long_name = &route.route_long_name.clone().unwrap_or("UNKOWN".into());
+            let short_name = &route.route_short_name.clone().unwrap_or("UNKOWN".into());
+            format!("Travel with {}({})", long_name, short_name)
+        }
         LegType::Transfer => "Transfer".into(),
         LegType::Walk => "Walk".into(),
     }

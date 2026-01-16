@@ -1,5 +1,4 @@
-use crate::{raptor::location::Point, repository::Repository, shared::time::Time};
-use rayon::prelude::*;
+use crate::{raptor::location::Point, shared::Time};
 
 #[derive(Debug, Clone, Copy)]
 pub enum ParentType {
@@ -81,44 +80,5 @@ impl Update {
             arrival_time,
             parent,
         }
-    }
-}
-
-#[derive(Debug, Default)]
-pub struct State {
-    pub tau_star: Vec<Option<Time>>,
-    pub marked: Vec<bool>,
-    pub labels: Vec<Vec<Option<Time>>>,
-    pub parents: Vec<Vec<Option<Parent>>>,
-}
-
-impl State {
-    pub fn new(repository: &Repository) -> Self {
-        Self {
-            tau_star: vec![None; repository.stops.len()],
-            marked: vec![false; repository.stops.len()],
-            labels: vec![],
-            parents: vec![],
-        }
-    }
-
-    pub fn apply_updates(&mut self, round: usize, updates: Vec<Update>) {
-        updates.into_iter().for_each(|update| {
-            let best_time = self.tau_star[update.stop_idx as usize].unwrap_or(u32::MAX.into());
-            if update.arrival_time < best_time {
-                self.labels[round][update.stop_idx as usize] = Some(update.arrival_time);
-                self.parents[round][update.stop_idx as usize] = Some(update.parent);
-                self.tau_star[update.stop_idx as usize] = Some(update.arrival_time);
-                self.marked[update.stop_idx as usize] = true;
-            }
-        })
-    }
-
-    pub fn marked_stops(&self) -> Vec<usize> {
-        self.marked
-            .par_iter()
-            .enumerate()
-            .filter_map(|(i, &m)| m.then_some(i))
-            .collect()
     }
 }

@@ -1,9 +1,6 @@
 use crate::dto::{AreaDto, stop::StopDto};
 use blaise::{
-    raptor::{
-        itinerary::{Itinerary, Leg, LegStop, LegType},
-        location::Location,
-    },
+    raptor::{Itinerary, Leg, LegStop, LegType, Location},
     repository::Repository,
     shared::{geo::Coordinate, time::Time},
 };

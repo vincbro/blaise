@@ -1,3 +1,5 @@
+use crate::repository::Cell;
+use serde::{Deserialize, Serialize};
 use std::{
     cmp,
     fmt::Display,
@@ -5,11 +7,9 @@ use std::{
     ops::{Add, Div, Mul, Sub},
     str::FromStr,
 };
-
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-pub(crate) const AVERAGE_STOP_DISTANCE: Distance = Distance::from_meters(500.0);
+pub const AVERAGE_STOP_DISTANCE: Distance = Distance::from_meters(1000.0);
 pub(crate) const LONGITUDE_DISTANCE: Distance = Distance::from_meters(111_320.0);
 pub(crate) const LATITUDE_DISTANCE: Distance = Distance::from_meters(110_540.0);
 
@@ -111,6 +111,15 @@ impl From<Coordinate> for (f32, f32) {
     }
 }
 
+impl From<(f32, f32)> for Coordinate {
+    fn from(value: (f32, f32)) -> Self {
+        Self {
+            latitude: value.0,
+            longitude: value.1,
+        }
+    }
+}
+
 impl Display for Coordinate {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!("{}, {}", self.latitude, self.longitude))
@@ -172,7 +181,7 @@ impl Coordinate {
         Distance::from_meters(self.euclidean_distance(coord).as_meters() * CIRCUITY_FACTOR)
     }
 
-    pub fn to_grid(&self) -> (i32, i32) {
+    pub fn to_cell(&self) -> Cell {
         let x = (self.longitude * LONGITUDE_DISTANCE.as_meters()
             / AVERAGE_STOP_DISTANCE.as_meters()) as i32;
         let y = (self.latitude * LATITUDE_DISTANCE.as_meters() / AVERAGE_STOP_DISTANCE.as_meters())
