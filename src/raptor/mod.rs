@@ -54,7 +54,6 @@ pub struct Raptor<'a> {
     to: Location,
     departure: Time,
     walk_distance: Distance,
-    allocator: Option<Allocator>,
 }
 
 impl<'a> Raptor<'a> {
@@ -75,13 +74,7 @@ impl<'a> Raptor<'a> {
             to,
             departure: Time::now(),
             walk_distance: 500.0.into(),
-            allocator: None,
         }
-    }
-
-    pub fn with_allocator(mut self, allocator: Allocator) -> Self {
-        self.allocator = Some(allocator);
-        self
     }
 
     /// Sets the earliest time the journey can begin.
@@ -527,6 +520,7 @@ impl<'a> Raptor<'a> {
     }
 }
 
+#[inline(always)]
 const fn time_to_walk(distance: Distance) -> Duration {
     let duration = (distance.as_meters() / 1.5).ceil() as u32;
     Duration::from_seconds(duration)

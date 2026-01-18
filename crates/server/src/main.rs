@@ -6,10 +6,10 @@ use crate::state::{AllocatorPool, AppState};
 use axum::routing::get;
 use blaise::prelude::*;
 use std::{env, path::Path, process, sync::Arc, time::Instant};
-use tokio::sync::RwLock;
+use tokio::{net::TcpListener, sync::RwLock};
 use tracing::{Level, error, info, warn};
 
-const PORT: u32 = 3000;
+const DEFAULT_PORT: u32 = 3000;
 const DEFAULT_ALLOC_COUNT: usize = 32;
 const DEFAULT_LOG_LEVEL: Level = Level::INFO;
 
@@ -37,11 +37,15 @@ async fn main() {
             process::exit(1);
         }
     };
-
     let alloc_count = env::var("ALLOCATOR_COUNT")
         .map(|value| value.parse().unwrap_or(DEFAULT_ALLOC_COUNT))
         .unwrap_or(DEFAULT_ALLOC_COUNT);
 
+    let port = env::var("PORT")
+        .map(|value| value.parse().unwrap_or(DEFAULT_PORT))
+        .unwrap_or(DEFAULT_PORT);
+
+    // Built app state
     let app_state = AppState {
         repository: RwLock::new(None),
         allocator_pool: RwLock::new(None),
@@ -52,8 +56,12 @@ async fn main() {
     if app_state.gtfs_data_path.exists() {
         info!("Loading data...");
         let now = Instant::now();
-        let data = Gtfs::new().from_zip(&app_state.gtfs_data_path).unwrap();
-        let repo = Repository::new().load_gtfs(data).unwrap();
+        let data = Gtfs::new()
+            .from_zip(&app_state.gtfs_data_path)
+            .expect("Failed to create gtfs data set");
+        let repo = Repository::new()
+            .load_gtfs(data)
+            .expect("Failed to load gtfs data in repository");
         let pool = AllocatorPool::new(alloc_count, &repo);
         let _ = app_state.allocator_pool.write().await.replace(pool);
         let _ = app_state.repository.write().await.replace(repo);
@@ -71,9 +79,11 @@ async fn main() {
         .route("/gtfs/fetch-url", get(api::fetch_url))
         .route("/gtfs/age", get(api::age))
         .with_state(Arc::new(app_state));
-    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", PORT))
+    let listener = TcpListener::bind(format!("0.0.0.0:{}", port))
         .await
-        .unwrap();
-    info!("Listening to port {PORT}");
-    axum::serve(listener, app).await.unwrap();
+        .expect("Failed to create listener");
+    info!("Listening to port {port}");
+    axum::serve(listener, app)
+        .await
+        .expect("Failed to serve listener");
 }
