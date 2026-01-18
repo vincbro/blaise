@@ -1,13 +1,10 @@
-use std::mem;
-
-// use rayon::iter::{IntoParallelIterator, ParallelExtend};
-use rayon::prelude::*;
-
 use crate::{
     raptor::{MAX_ROUNDS, Parent, Update},
     repository::Repository,
     shared::Time,
 };
+use rayon::prelude::*;
+use std::mem;
 
 pub struct Allocator {
     pub(crate) tau_star: Vec<Option<Time>>,

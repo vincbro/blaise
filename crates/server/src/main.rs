@@ -11,13 +11,19 @@ use tracing::{Level, error, info, warn};
 
 const PORT: u32 = 3000;
 const DEFAULT_ALLOC_COUNT: usize = 32;
+const DEFAULT_LOG_LEVEL: Level = Level::INFO;
 
 #[tokio::main]
 async fn main() {
+    let log_level = match env::var("LOG_LEVEL") {
+        Ok(level_str) => Level::from_str(&level_str).unwrap_or(DEFAULT_LOG_LEVEL),
+        Err(_) => DEFAULT_LOG_LEVEL,
+    };
+
     tracing_subscriber::fmt()
         .with_file(false)
         .with_target(false)
-        .with_max_level(Level::TRACE)
+        .with_max_level(log_level)
         .init();
 
     let start_logo = include_str!("../start_logo.txt");

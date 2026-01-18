@@ -9,7 +9,7 @@ VERSION=$(grep '^version =' Cargo.toml | head -1 | cut -d '"' -f 2)
 echo "Starting deployment for $PROJECT_NAME v$VERSION..."
 
 echo "📦 Publishing to Crates.io..."
-# cargo publish --allow-dirty
+cargo publish --allow-dirty
 
 
 echo "🐳 Building Docker image..."

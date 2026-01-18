@@ -65,6 +65,10 @@ To improve performance *blaise* will pre allocate most of the memory needed for 
 
 **BE AWARE**, setting this number to high will use large amounts of memory. Start low and see how far you can get.
 
+### LOG_LEVEL
+Sets all the the maximum log level that will be displayed.
+Can be: `error` `warn` `info` `debug` `trace`
+
 
 ## Endpoints
 

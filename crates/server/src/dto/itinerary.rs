@@ -7,22 +7,35 @@ use blaise::{
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
 pub enum LocationDto {
-    Area(AreaDto),
-    Stop(StopDto),
-    Coordinate(Coordinate),
+    #[serde(rename = "area")]
+    Area {
+        #[serde(flatten)]
+        data: AreaDto,
+    },
+    #[serde(rename = "stop")]
+    Stop {
+        #[serde(flatten)]
+        data: StopDto,
+    },
+    #[serde(rename = "coordinate")]
+    Coordinate {
+        #[serde(flatten)]
+        data: Coordinate,
+    },
 }
 
 impl LocationDto {
     pub fn from(location: Location, repository: &Repository) -> Option<Self> {
         match location {
-            Location::Area(id) => repository
-                .area_by_id(&id)
-                .map(|val| LocationDto::Area(AreaDto::from(val, repository))),
-            Location::Stop(id) => repository
-                .stop_by_id(&id)
-                .map(|val| LocationDto::Stop(StopDto::from(val))),
-            Location::Coordinate(coordinate) => Some(LocationDto::Coordinate(coordinate)),
+            Location::Area(id) => repository.area_by_id(&id).map(|val| LocationDto::Area {
+                data: AreaDto::from(val, repository),
+            }),
+            Location::Stop(id) => repository.stop_by_id(&id).map(|val| LocationDto::Stop {
+                data: StopDto::from(val),
+            }),
+            Location::Coordinate(coordinate) => Some(LocationDto::Coordinate { data: coordinate }),
         }
     }
 }
