@@ -1,7 +1,7 @@
 use crate::{raptor::location::Point, shared::Time};
 
 #[derive(Debug, Clone, Copy)]
-pub enum ParentType {
+pub(crate) enum ParentType {
     Transit(u32),
     Transfer,
     Walk,
@@ -12,9 +12,10 @@ impl ParentType {
         matches!(self, ParentType::Transit(_))
     }
 
-    pub fn is_transfer(&self) -> bool {
-        matches!(self, ParentType::Transfer)
-    }
+    // Unused for now
+    // pub fn is_transfer(&self) -> bool {
+    //     matches!(self, ParentType::Transfer)
+    // }
 
     pub fn is_walk(&self) -> bool {
         matches!(self, ParentType::Walk)
@@ -22,7 +23,7 @@ impl ParentType {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct Parent {
+pub(crate) struct Parent {
     pub from: Point,
     pub to: Point,
     pub parent_type: ParentType,
@@ -67,7 +68,7 @@ impl Parent {
 }
 
 #[derive(Debug, Clone)]
-pub struct Update {
+pub(crate) struct Update {
     pub stop_idx: u32,
     pub arrival_time: Time,
     pub parent: Parent,

@@ -43,7 +43,7 @@ pub struct LegStop {
 }
 
 impl LegStop {
-    pub fn generate_stops(parent: &Parent, repository: &Repository) -> Vec<Self> {
+    pub(crate) fn generate_stops(parent: &Parent, repository: &Repository) -> Vec<Self> {
         match parent.parent_type {
             ParentType::Transit(trip_idx) => {
                 let trip = &repository.trips[trip_idx as usize];
@@ -87,7 +87,12 @@ pub struct Itinerary {
 }
 
 impl Itinerary {
-    pub fn new(from: Location, to: Location, path: Vec<Parent>, repository: &Repository) -> Self {
+    pub(crate) fn new(
+        from: Location,
+        to: Location,
+        path: Vec<Parent>,
+        repository: &Repository,
+    ) -> Self {
         let legs = path
             .into_iter()
             .map(|parent| {

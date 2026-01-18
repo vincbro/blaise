@@ -6,7 +6,7 @@ mod state;
 pub use allocator::*;
 pub use itinerary::*;
 pub use location::*;
-pub use state::*;
+pub(crate) use state::*;
 
 use crate::{
     repository::{RaptorRoute, Repository, StopTime, Transfer, Trip},
@@ -62,7 +62,7 @@ impl<'a> Raptor<'a> {
     ///
     /// By default, the search uses the current system time for departure and
     /// a standard walking distance. These can be customized using the builder
-    /// methods before calling [`solve`].
+    /// methods before calling solve.
     ///
     /// # Arguments
     /// * `repository` - A reference to the static transit data.

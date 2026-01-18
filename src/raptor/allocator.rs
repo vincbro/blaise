@@ -6,24 +6,37 @@ use crate::{
 use rayon::prelude::*;
 use std::mem;
 
+/// A memory pool for the RAPTOR algorithm's state.
+///
+/// This allocator pre-allocates all necessary buffers to avoid expensive heap allocations
+/// during the hot path of route planning. This is especially useful for long-running
+/// services (like web servers) where many short-lived RAPTOR instances are created.
 pub struct Allocator {
+    /// The best known arrival time at each stop across all rounds.
     pub(crate) tau_star: Vec<Option<Time>>,
+    /// Tracks which stops were updated in the current round and need to be explored in the next.
     pub(crate) marked_stops: Vec<bool>,
-    // We use 2 arrays that we then switch every round since you only
-    // ever look at the current and last rounds in raptor,
-    // so keeping a full record does nothing.
+    /// Labels from the previous round (k-1).
     pub(crate) prev_labels: Vec<Option<Time>>,
+    /// Labels for the current round (k).
+    /// We use two arrays to "double-buffer" labels since RAPTOR only ever references the previous round.
     pub(crate) curr_labels: Vec<Option<Time>>,
-    // Moving parents to a single
+    /// A flattened 2D matrix [round][stop_index] storing path reconstruction pointers.
     pub(crate) parents: Vec<Option<Parent>>,
-    // Holds a buffer off updates
+    /// Buffer used to batch updates before applying them to the state.
     pub(crate) updates: Vec<Update>,
-    // Holds the route and which stop in that route we should start exploring from.
+    /// Tracks the earliest relevant stop index for each route in the current round.
     pub(crate) active: Vec<Option<u32>>,
+    /// Total number of stops in the associated repository.
     pub(crate) stop_count: usize,
 }
 
 impl Allocator {
+    /// Creates a new allocator sized for the given repository.
+    ///
+    /// # Warning
+    /// The allocator must be used with the exact same `Repository` it was created for.
+    /// Using it with a different repository may cause logic errors or out-of-bounds panics.
     pub fn new(repository: &Repository) -> Self {
         Self {
             tau_star: vec![None; repository.stops.len()],
@@ -37,6 +50,8 @@ impl Allocator {
         }
     }
 
+    /// Resets the internal buffers to their initial state, allowing the allocator
+    /// to be reused for a new search without re-allocating memory.
     pub fn reset(&mut self) {
         self.tau_star.fill(None);
         self.marked_stops.fill(false);
