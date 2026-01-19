@@ -38,6 +38,20 @@ struct ServingRoute {
     idx_in_route: u32,
 }
 
+enum TimeConstraint {
+    Arrival(Time),
+    Departure(Time),
+}
+
+impl TimeConstraint {
+    pub fn time(&self) -> Time {
+        match *self {
+            TimeConstraint::Arrival(time) => time,
+            TimeConstraint::Departure(time) => time,
+        }
+    }
+}
+
 /// The execution engine for the Round-Based Public Transit Routing (RAPTOR) algorithm.
 ///
 /// This struct holds the search parameters and a reference to the underlying transit
@@ -52,7 +66,7 @@ pub struct Raptor<'a> {
     repository: &'a Repository,
     from: Location,
     to: Location,
-    departure: Time,
+    time_constraint: TimeConstraint,
     walk_distance: Distance,
 }
 
@@ -72,7 +86,7 @@ impl<'a> Raptor<'a> {
             repository,
             from,
             to,
-            departure: Time::now(),
+            time_constraint: TimeConstraint::Departure(Time::now()),
             walk_distance: 500.0.into(),
         }
     }
@@ -83,7 +97,17 @@ impl<'a> Raptor<'a> {
     /// Note that earlier departure times may result in different optimal paths
     /// even for the same origin/destination.
     pub fn departure_at(mut self, departure: Time) -> Self {
-        self.departure = departure;
+        self.time_constraint = TimeConstraint::Departure(departure);
+        self
+    }
+
+    /// Sets the latest time the journey can arrive.
+    ///
+    /// The algorithm will only consider trips that arrive at or before this time.
+    /// Note that latest arrival times may result in different optimal paths
+    /// even for the same origin/destination.
+    pub fn arrival_at(mut self, arrival: Time) -> Self {
+        self.time_constraint = TimeConstraint::Arrival(arrival);
         self
     }
 
@@ -123,6 +147,11 @@ impl<'a> Raptor<'a> {
     /// Execution time typically scales with the number of possible routes between
     /// the origin and destination.
     pub fn solve_with_allocator(self, allocator: &mut Allocator) -> Result<Itinerary, self::Error> {
+        let departure_time = match self.time_constraint {
+            TimeConstraint::Arrival(_) => todo!(),
+            TimeConstraint::Departure(time) => time,
+        };
+
         let from_coord = self.coordinate(&self.from)?;
         let updates = self
             .repository
@@ -131,14 +160,14 @@ impl<'a> Raptor<'a> {
             .filter(|stop| !self.repository.trips_by_stop_idx(stop.index).is_empty())
             .map(|stop| {
                 let walk_duration = time_to_walk(stop.coordinate.network_distance(&from_coord));
-                let arrival_time = self.departure + walk_duration;
+                let arrival_time = departure_time + walk_duration;
                 Update::new(
                     stop.index,
                     arrival_time,
                     Parent::new_walk(
                         from_coord.into(),
                         stop.index.into(),
-                        self.departure,
+                        departure_time,
                         arrival_time,
                     ),
                 )
