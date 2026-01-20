@@ -65,6 +65,7 @@ pub struct LegDto {
     pub arrival_time: Time,
     pub stops: Vec<LegStopDto>,
     pub mode: Mode,
+    pub head_sign: Option<String>,
     pub long_name: Option<String>,
     pub short_name: Option<String>,
 }
@@ -114,7 +115,12 @@ impl LegDto {
             .map(|stop| LegStopDto::from(stop, repository))
             .collect();
 
-        let (long_name, short_name) = if let LegType::Transit(trip_idx) = leg.leg_type {
+        let (head_sign, long_name, short_name) = if let LegType::Transit(trip_idx) = leg.leg_type {
+            let trip = &repository.trips[trip_idx as usize];
+            let head_sign = trip
+                .head_sign
+                .as_ref()
+                .map(|head_sign| head_sign.to_string());
             let route = repository.route_by_trip_idx(trip_idx);
             let long_name = route
                 .long_name
@@ -124,9 +130,9 @@ impl LegDto {
                 .short_name
                 .as_ref()
                 .map(|short_name| short_name.to_string());
-            (long_name, short_name)
+            (head_sign, long_name, short_name)
         } else {
-            (None, None)
+            (None, None, None)
         };
 
         Some(Self {
@@ -136,6 +142,7 @@ impl LegDto {
             arrival_time: leg.arrival_time,
             stops: stops?,
             mode: Mode::from_leg(leg.leg_type, repository),
+            head_sign,
             long_name,
             short_name,
         })

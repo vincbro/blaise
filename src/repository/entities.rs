@@ -167,7 +167,7 @@ pub struct Trip {
     pub route_idx: u32,
     /// Pointer to the optimized [`RaptorRoute`] used by the routing engine.
     pub raptor_route_idx: u32,
-    pub headsign: Option<Arc<str>>,
+    pub head_sign: Option<Arc<str>>,
     pub short_name: Option<Arc<str>>,
 }
 

@@ -114,7 +114,7 @@ impl Repository {
                 id: trip.trip_id.into(),
                 route_idx: *route_index,
                 raptor_route_idx: 0,
-                headsign: trip.trip_headsign.map(|val| val.into()),
+                head_sign: trip.trip_headsign.map(|val| val.into()),
                 short_name: trip.trip_short_name.map(|val| val.into()),
             };
             route_to_trips[*route_index as usize].push(i as u32);
