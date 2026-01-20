@@ -52,6 +52,8 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("Routing");
 
+    group.warm_up_time(Duration::from_secs(5));
+
     group.measurement_time(Duration::from_secs(30));
 
     group.bench_function("Short route solve", |b| {

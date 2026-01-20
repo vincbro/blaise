@@ -5,9 +5,9 @@ mod state;
 use crate::state::{AllocatorPool, AppState};
 use axum::routing::get;
 use blaise::prelude::*;
-use std::{env, path::Path, process, sync::Arc, time::Instant};
+use std::{env, path::Path, sync::Arc, time::Instant};
 use tokio::{net::TcpListener, sync::RwLock};
-use tracing::{Level, error, info, warn};
+use tracing::{Level, info, warn};
 
 const DEFAULT_PORT: u32 = 3000;
 const DEFAULT_ALLOC_COUNT: usize = 32;
@@ -30,19 +30,20 @@ async fn main() {
     println!("{}", start_logo);
 
     // Load env vars
-    let gtfs_data_path = match env::var("GTFS_DATA_PATH") {
-        Ok(path_str) => Path::new(&path_str).to_owned(),
-        Err(err) => {
-            error!("Failed loading GTFS_DATA_PATH: {}", err);
-            process::exit(1);
-        }
-    };
+    let gtfs_data_path = env::var("GTFS_DATA_PATH")
+        .map(|path_str| Path::new(&path_str).to_owned())
+        .expect("Missing GTFS_DATA_PATH");
+
     let alloc_count = env::var("ALLOCATOR_COUNT")
-        .map(|value| value.parse().unwrap_or(DEFAULT_ALLOC_COUNT))
+        .map(|value| {
+            value
+                .parse()
+                .expect("Failed to parse the given allocator count")
+        })
         .unwrap_or(DEFAULT_ALLOC_COUNT);
 
     let port = env::var("PORT")
-        .map(|value| value.parse().unwrap_or(DEFAULT_PORT))
+        .map(|value| value.parse().expect("Failed to parse the given port"))
         .unwrap_or(DEFAULT_PORT);
 
     // Built app state
