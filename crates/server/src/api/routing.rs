@@ -118,8 +118,8 @@ fn leg_type_str(parent_type: &LegType, repository: &Repository) -> String {
         LegType::Transit(trip_idx) => {
             let trip = &repository.trips[*trip_idx as usize];
             let route = &repository.routes[trip.route_idx as usize];
-            let long_name = &route.route_long_name.clone().unwrap_or("UNKOWN".into());
-            let short_name = &route.route_short_name.clone().unwrap_or("UNKOWN".into());
+            let long_name = &route.long_name.clone().unwrap_or("UNKOWN".into());
+            let short_name = &route.short_name.clone().unwrap_or("UNKOWN".into());
             format!("Travel with {}({})", long_name, short_name)
         }
         LegType::Transfer => "Transfer".into(),

@@ -1,9 +1,10 @@
 use crate::{
     gtfs::{self, Gtfs},
+    prelude::LocationType,
     repository::{
         Area, Cell, RaptorRoute, Repository, Route, Stop, StopTime, StopTimeSlice, Transfer, Trip,
     },
-    shared::{AVERAGE_STOP_DISTANCE, time::Duration},
+    shared::{AVERAGE_STOP_DISTANCE, Coordinate, time::Duration},
 };
 use rayon::prelude::*;
 use std::{collections::HashMap, sync::Arc, time::Instant};
@@ -19,6 +20,7 @@ impl Repository {
         self.load_transfers(&mut gtfs)?;
         self.load_stop_times(&mut gtfs)?;
         self.generate_geo_hash();
+        self.generate_spatial_grid();
         self.generate_raptor_routes();
         self.generate_walks();
         Ok(self)
@@ -277,6 +279,30 @@ impl Repository {
             .collect();
         self.stop_distance_lookup = stop_distance_lookup;
         debug!("Generating geo spatial hash took {:?}", now.elapsed());
+    }
+
+    fn generate_spatial_grid(&mut self) {
+        let mut max = Coordinate::new(f32::NEG_INFINITY, f32::NEG_INFINITY);
+        let mut min = Coordinate::new(f32::INFINITY, f32::INFINITY);
+
+        self.stops
+            .iter()
+            .filter(|stop| !self.trips_by_stop_idx(stop.index).is_empty())
+            .filter(|s| {
+                // Filter out "Null Island" and extreme outliers
+                s.coordinate.latitude != 0.0
+                    && s.coordinate.longitude != 0.0
+                    && s.coordinate.latitude.abs() <= 90.0
+                    && s.coordinate.longitude.abs() <= 180.0
+            })
+            .for_each(|stop| {
+                max.latitude = max.latitude.max(stop.coordinate.latitude);
+                min.latitude = min.latitude.min(stop.coordinate.latitude);
+                max.longitude = max.longitude.max(stop.coordinate.longitude);
+                min.longitude = min.longitude.min(stop.coordinate.longitude);
+            });
+
+        println!("MAX: {}, MIN: {}", max, min)
     }
 
     fn generate_raptor_routes(&mut self) {

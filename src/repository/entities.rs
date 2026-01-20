@@ -177,8 +177,8 @@ pub struct Route {
     pub index: u32,
     pub id: Arc<str>,
     pub agency_id: Arc<str>,
-    pub route_short_name: Option<Arc<str>>,
-    pub route_long_name: Option<Arc<str>>,
+    pub short_name: Option<Arc<str>>,
+    pub long_name: Option<Arc<str>>,
     /// Classification of the vehicle (0: Tram, 1: Subway, 3: Bus, etc.).
     pub route_type: i32,
     pub route_desc: Option<Arc<str>>,

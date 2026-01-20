@@ -90,8 +90,8 @@ impl From<GtfsRoute> for Route {
             index: u32::MAX,
             id: value.route_id.into(),
             agency_id: value.agency_id.into(),
-            route_short_name: value.route_short_name.map(|val| val.into()),
-            route_long_name: value.route_long_name.map(|val| val.into()),
+            short_name: value.route_short_name.map(|val| val.into()),
+            long_name: value.route_long_name.map(|val| val.into()),
             route_type: value.route_type,
             route_desc: value.route_desc.map(|val| val.into()),
         }

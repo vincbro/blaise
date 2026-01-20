@@ -64,7 +64,46 @@ pub struct LegDto {
     pub departue_time: Time,
     pub arrival_time: Time,
     pub stops: Vec<LegStopDto>,
-    pub leg_type: LegType,
+    pub mode: Mode,
+    pub long_name: Option<String>,
+    pub short_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+pub enum Mode {
+    // Base modes
+    Tram,
+    Subway,
+    Rail,
+    Bus,
+    Ferry,
+    Walk,
+    Transfer,
+    Unknown,
+}
+
+impl Mode {
+    fn from_leg(value: LegType, repository: &Repository) -> Self {
+        match value {
+            LegType::Transit(trip_idx) => {
+                Mode::from(repository.route_by_trip_idx(trip_idx).route_type)
+            }
+            LegType::Transfer => Mode::Transfer,
+            LegType::Walk => Mode::Walk,
+        }
+    }
+}
+impl From<i32> for Mode {
+    fn from(value: i32) -> Self {
+        match value {
+            0 | 900..=999 => Mode::Tram,
+            1 | 400..=405 => Mode::Subway,
+            2 | 100..=199 => Mode::Rail,
+            3 | 700..=799 => Mode::Bus,
+            4 | 1000..=1099 => Mode::Ferry,
+            _ => Mode::Unknown,
+        }
+    }
 }
 
 impl LegDto {
@@ -74,13 +113,31 @@ impl LegDto {
             .into_iter()
             .map(|stop| LegStopDto::from(stop, repository))
             .collect();
+
+        let (long_name, short_name) = if let LegType::Transit(trip_idx) = leg.leg_type {
+            let route = repository.route_by_trip_idx(trip_idx);
+            let long_name = route
+                .long_name
+                .as_ref()
+                .map(|long_name| long_name.to_string());
+            let short_name = route
+                .short_name
+                .as_ref()
+                .map(|short_name| short_name.to_string());
+            (long_name, short_name)
+        } else {
+            (None, None)
+        };
+
         Some(Self {
             from: LocationDto::from(leg.from, repository)?,
             to: LocationDto::from(leg.to, repository)?,
             departue_time: leg.departue_time,
             arrival_time: leg.arrival_time,
             stops: stops?,
-            leg_type: leg.leg_type,
+            mode: Mode::from_leg(leg.leg_type, repository),
+            long_name,
+            short_name,
         })
     }
 }

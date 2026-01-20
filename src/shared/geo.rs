@@ -163,6 +163,13 @@ impl FromStr for Coordinate {
 }
 
 impl Coordinate {
+    pub fn new(latitude: f32, longitude: f32) -> Self {
+        Self {
+            latitude,
+            longitude,
+        }
+    }
+
     pub fn euclidean_distance(&self, coord: &Self) -> Distance {
         const R: f32 = 6371.0;
         let dist_lat = f32::to_radians(coord.latitude - self.latitude);

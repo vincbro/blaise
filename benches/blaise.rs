@@ -2,10 +2,21 @@ use blaise::{
     gtfs::Gtfs,
     prelude::Repository,
     raptor::{Allocator, Location},
-    shared::{Coordinate, Time},
+    shared::{AVERAGE_STOP_DISTANCE, Coordinate, Distance, Time},
 };
 use criterion::{Criterion, criterion_group, criterion_main};
 use std::{env, hint::black_box, path::Path, time::Duration};
+
+fn geo_lookup_tile_size(repository: &Repository) {
+    let coordinate = Coordinate::from((59.370_136, 18.001_749));
+    let _ = black_box(repository.stops_by_coordinate(&coordinate, AVERAGE_STOP_DISTANCE));
+}
+
+fn geo_lookup_10x_tile_size(repository: &Repository) {
+    const DISTANCE: Distance = Distance::from_meters(AVERAGE_STOP_DISTANCE.as_meters() * 10.0);
+    let coordinate = Coordinate::from((59.370_136, 18.001_749));
+    let _ = black_box(repository.stops_by_coordinate(&coordinate, DISTANCE));
+}
 
 fn short_solve(repository: &Repository, allocator: &mut Allocator) {
     let from: Location = Coordinate::from((59.370_136, 18.001_749)).into();
@@ -55,6 +66,14 @@ fn criterion_benchmark(c: &mut Criterion) {
     group.warm_up_time(Duration::from_secs(5));
 
     group.measurement_time(Duration::from_secs(30));
+
+    group.bench_function("Distance 1x", |b| {
+        b.iter(|| geo_lookup_tile_size(&repository))
+    });
+
+    group.bench_function("Distance 10x", |b| {
+        b.iter(|| geo_lookup_10x_tile_size(&repository))
+    });
 
     group.bench_function("Short route solve", |b| {
         b.iter(|| short_solve(&repository, &mut allocator))
