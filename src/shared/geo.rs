@@ -9,7 +9,7 @@ use std::{
 };
 use thiserror::Error;
 
-pub const AVERAGE_STOP_DISTANCE: Distance = Distance::from_meters(1000.0);
+pub const AVERAGE_STOP_DISTANCE: Distance = Distance::from_meters(500.0);
 pub(crate) const LONGITUDE_DISTANCE: Distance = Distance::from_meters(111_320.0);
 pub(crate) const LATITUDE_DISTANCE: Distance = Distance::from_meters(110_540.0);
 

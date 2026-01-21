@@ -72,10 +72,11 @@ async fn main() {
     }
 
     info!("Starting server...");
-
     let app = axum::Router::new()
-        .route("/search", get(api::search))
-        .route("/near", get(api::near))
+        .route("/search/area", get(api::search_areas))
+        .route("/search/stop", get(api::search_stops))
+        .route("/near/area", get(api::near_areas))
+        .route("/near/stop", get(api::near_stops))
         .route("/routing", get(api::routing))
         .route("/gtfs/fetch-url", get(api::fetch_url))
         .route("/gtfs/age", get(api::age))

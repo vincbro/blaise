@@ -9,15 +9,16 @@ pub use location::*;
 pub(crate) use state::*;
 
 use crate::{
-    repository::{RaptorRoute, Repository, StopTime, Transfer, Trip},
+    repository::{RaptorRoute, Repository, Stop, Transfer, Trip},
     shared::{
-        geo::{Coordinate, Distance},
+        AVERAGE_STOP_DISTANCE,
+        geo::Distance,
         time::{Duration, Time},
     },
 };
 use rayon::prelude::*;
 use thiserror::Error;
-use tracing::{debug, warn};
+use tracing::{debug, trace, warn};
 
 pub const MAX_ROUNDS: usize = 15;
 
@@ -67,7 +68,7 @@ pub struct Raptor<'a> {
     from: Location,
     to: Location,
     time_constraint: TimeConstraint,
-    walk_distance: Distance,
+    // walk_distance: Distance,
 }
 
 impl<'a> Raptor<'a> {
@@ -87,7 +88,7 @@ impl<'a> Raptor<'a> {
             from,
             to,
             time_constraint: TimeConstraint::Departure(Time::now()),
-            walk_distance: 500.0.into(),
+            // walk_distance: 500.0.into(),
         }
     }
 
@@ -152,48 +153,27 @@ impl<'a> Raptor<'a> {
             TimeConstraint::Departure(time) => time,
         };
 
-        let from_coord = self.coordinate(&self.from)?;
-        let updates = self
-            .repository
-            .stops_by_coordinate(&from_coord, self.walk_distance)
-            .into_par_iter()
-            .filter(|stop| !self.repository.trips_by_stop_idx(stop.index).is_empty())
-            .map(|stop| {
-                let walk_duration = time_to_walk(stop.coordinate.network_distance(&from_coord));
-                let arrival_time = departure_time + walk_duration;
-                Update::new(
-                    stop.index,
-                    arrival_time,
-                    Parent::new_walk(
-                        from_coord.into(),
-                        stop.index.into(),
-                        departure_time,
-                        arrival_time,
-                    ),
-                )
-            });
-        allocator.updates.par_extend(updates);
-        allocator.run_updates(0);
+        let from_stops = self.stops_by_location(&self.from)?;
+        trace!("Found {} possible starting stops", from_stops.len());
+        from_stops.into_iter().for_each(|stop| {
+            trace!("Found {} as a possible start", stop.id);
+            allocator.marked_stops[stop.index as usize] = true;
+            allocator.curr_labels[stop.index as usize] = Some(departure_time);
+        });
 
         // Targets
-        let to_coord = self.coordinate(&self.to)?;
-        let target_stops: Vec<(usize, Duration)> = self
-            .repository
-            .stops_by_coordinate(&to_coord, self.walk_distance) // same radius as start
-            .into_iter()
-            .map(|stop| {
-                let walk = time_to_walk(stop.coordinate.network_distance(&to_coord));
-                (stop.index as usize, walk)
-            })
-            .collect();
+        let target_stops = self.stops_by_location(&self.to)?;
+        target_stops.iter().for_each(|stop| {
+            trace!("Found {} as a possible stop", stop.id);
+        });
 
         // Stores the current best path we have found
         let mut target_best: Time = u32::MAX.into();
-        let mut target_best_stop: Option<usize> = None;
+        let mut target_best_stop: Option<u32> = None;
         let mut target_best_round: Option<usize> = None;
 
         // We always start at round 1 since the base round is 0
-        let mut round: usize = 1;
+        let mut round: usize = 0;
         loop {
             if round >= MAX_ROUNDS {
                 warn!("Hit round limit!");
@@ -229,12 +209,13 @@ impl<'a> Raptor<'a> {
                     }
                 }
             });
+
             let updates = allocator
                 .active
                 .par_iter()
                 .enumerate()
                 .filter_map(|(r_idx, p_idx)| p_idx.map(|p_idx| (r_idx, p_idx)))
-                .map(|(route_idx, p_idx)| {
+                .filter_map(|(route_idx, p_idx)| {
                     // We walk down each route starting from
                     // the earliest stop in the route we updated last round
 
@@ -244,8 +225,7 @@ impl<'a> Raptor<'a> {
                     let mut boarding_p: usize = usize::MAX;
 
                     // --- Buffers ---
-                    let mut updates_buffer: Vec<Update> = Vec::with_capacity(64);
-                    let mut earliest_trip_buffer: Vec<&[StopTime]> = Vec::with_capacity(64);
+                    let mut updates_buffer: LazyBuffer<Update> = LazyBuffer::new(32);
 
                     for (i, stop_idx) in route.stops.iter().enumerate().skip(p_idx as usize) {
                         // PART A
@@ -278,19 +258,15 @@ impl<'a> Raptor<'a> {
                             .unwrap_or(u32::MAX.into());
 
                         if prev_round_arrival <= current_trip_dep
-                            && let Some(earlier_trip) = self.find_earliest_trip(
-                                route,
-                                i,
-                                prev_round_arrival,
-                                &mut earliest_trip_buffer,
-                            )
+                            && let Some(earlier_trip) =
+                                self.find_earliest_trip(route, i, prev_round_arrival)
                         {
                             active_trip = Some(earlier_trip);
                             boarding_stop = *stop_idx;
                             boarding_p = i;
                         }
                     }
-                    updates_buffer
+                    updates_buffer.get()
                 })
                 .flatten();
             allocator.updates.par_extend(updates);
@@ -299,8 +275,8 @@ impl<'a> Raptor<'a> {
             let updates = allocator
                 .get_marked_stops()
                 .into_par_iter()
-                .map(|stop_idx| {
-                    let mut updates: Vec<Update> = Vec::with_capacity(64);
+                .filter_map(|stop_idx| {
+                    let mut updates_buffer: LazyBuffer<Update> = LazyBuffer::new(64);
                     // All the possible transfers
                     for transfer in self.repository.transfers_by_stop_idx(stop_idx as u32) {
                         let departure_time =
@@ -311,7 +287,7 @@ impl<'a> Raptor<'a> {
                                 .unwrap_or(u32::MAX.into())
                             && arrival_time < target_best
                         {
-                            updates.push(Update::new(
+                            updates_buffer.push(Update::new(
                                 transfer.to_stop_idx,
                                 arrival_time,
                                 Parent::new_transfer(
@@ -340,7 +316,7 @@ impl<'a> Raptor<'a> {
                                     .unwrap_or(u32::MAX.into())
                                 && arrival_time < target_best
                             {
-                                updates.push(Update::new(
+                                updates_buffer.push(Update::new(
                                     next_stop.index,
                                     arrival_time,
                                     Parent::new_walk(
@@ -352,7 +328,7 @@ impl<'a> Raptor<'a> {
                                 ));
                             }
                         });
-                    updates
+                    updates_buffer.get()
                 })
                 .flatten();
             allocator.updates.par_extend(updates);
@@ -360,15 +336,14 @@ impl<'a> Raptor<'a> {
 
             target_stops
                 .iter()
-                .filter_map(|(stop_idx, walk_duration)| {
-                    let tau_star = allocator.tau_star[*stop_idx];
-                    tau_star.map(|tau_star| (stop_idx, walk_duration, tau_star))
+                .filter_map(|stop| {
+                    let tau_star = allocator.tau_star[stop.index as usize];
+                    tau_star.map(|tau_star| (stop, tau_star))
                 })
-                .for_each(|(stop_idx, walk_duration, tau_star)| {
-                    let arrival_at_goal = tau_star + *walk_duration;
-                    if arrival_at_goal < target_best {
-                        target_best = arrival_at_goal;
-                        target_best_stop = Some(*stop_idx);
+                .for_each(|(stop, tau_star)| {
+                    if tau_star < target_best {
+                        target_best = tau_star;
+                        target_best_stop = Some(stop.index);
                         target_best_round = Some(round);
                     }
                 });
@@ -378,7 +353,7 @@ impl<'a> Raptor<'a> {
         if let Some(target_stop) = target_best_stop
             && let Some(target_round) = target_best_round
         {
-            let path = self.backtrack(allocator, to_coord, target_stop, target_round)?;
+            let path = self.backtrack(allocator, target_stop, target_round)?;
             Ok(Itinerary::new(self.from, self.to, path, self.repository))
         } else {
             Err(self::Error::NoRouteFound)
@@ -388,25 +363,31 @@ impl<'a> Raptor<'a> {
     fn backtrack(
         &self,
         allocator: &Allocator,
-        to_coord: Coordinate,
-        target_stop: usize,
+        target_stop: u32,
         target_round: usize,
     ) -> Result<Vec<Parent>, self::Error> {
         let mut path: Vec<Parent> = Vec::new();
 
-        let mut current_point: Point = (target_stop as u32).into();
+        let mut current_point: Point = target_stop.into();
         let mut current_round = target_round;
 
         while let Point::Stop(current_stop) = current_point {
+            let stop = &self.repository.stops[current_stop as usize];
+            trace!(
+                "Looking at stop: [{}] {} in round {current_round}",
+                stop.id, stop.name
+            );
             if let Some(parent) = &allocator.get_parents(current_round)[current_stop as usize] {
                 path.push(*parent);
                 current_point = parent.from;
                 // If we are on a transit we decrese the round else we don't since
                 // transfers does not count as a round switch
                 if parent.parent_type.is_transit() {
-                    current_round -= 1;
-                } else if current_round == 0 {
-                    break;
+                    if current_round == 0 {
+                        break;
+                    } else {
+                        current_round -= 1;
+                    }
                 }
             } else {
                 return Err(Error::FailedToBuildRoute);
@@ -414,55 +395,91 @@ impl<'a> Raptor<'a> {
         }
         path.reverse();
 
-        if let Some(last_parent) = path.pop() {
-            let final_stop_coord = self.repository.stops[target_stop].coordinate;
-            let dist_to_target = final_stop_coord.network_distance(&to_coord);
-            let walk_to_target = time_to_walk(dist_to_target);
+        // if let Some(last_parent) = path.pop() {
+        //     let final_stop_coord = self.repository.stops[target_stop as usize].coordinate;
+        //     let dist_to_target = final_stop_coord.network_distance(&to_coord);
+        //     let walk_to_target = time_to_walk(dist_to_target);
 
-            if walk_to_target == 0.into() {
-                path.push(last_parent);
-            } else {
-                match last_parent.parent_type.is_walk() {
-                    true => {
-                        // Merge: From the start of the last walk, straight to the final coord
-                        path.push(Parent::new_walk(
-                            last_parent.from,
-                            to_coord.into(),
-                            last_parent.arrival_time,
-                            last_parent.arrival_time + walk_to_target,
-                        ));
-                    }
-                    false => {
-                        // Keep the transit leg, then add a final walk leg
-                        path.push(last_parent);
-                        path.push(Parent::new_walk(
-                            Point::Stop(target_stop as u32),
-                            to_coord.into(),
-                            last_parent.arrival_time,
-                            last_parent.arrival_time + walk_to_target,
-                        ));
-                    }
-                }
-            }
-        }
+        //     if walk_to_target == 0.into() {
+        //         path.push(last_parent);
+        //     } else {
+        //         match last_parent.parent_type.is_walk() {
+        //             true => {
+        //                 // Merge: From the start of the last walk, straight to the final coord
+        //                 path.push(Parent::new_walk(
+        //                     last_parent.from,
+        //                     to_coord.into(),
+        //                     last_parent.arrival_time,
+        //                     last_parent.arrival_time + walk_to_target,
+        //                 ));
+        //             }
+        //             false => {
+        //                 // Keep the transit leg, then add a final walk leg
+        //                 path.push(last_parent);
+        //                 path.push(Parent::new_walk(
+        //                     Point::Stop(target_stop as u32),
+        //                     to_coord.into(),
+        //                     last_parent.arrival_time,
+        //                     last_parent.arrival_time + walk_to_target,
+        //                 ));
+        //             }
+        //         }
+        //     }
+        // }
         Ok(path)
     }
 
-    fn coordinate(&self, location: &Location) -> Result<Coordinate, self::Error> {
+    fn stops_by_location(&self, location: &Location) -> Result<Vec<&Stop>, self::Error> {
         match location {
             Location::Area(id) => {
-                let area_idx = self
+                trace!("Possible area: {id}");
+                let area = self
                     .repository
                     .area_by_id(id)
                     .ok_or(self::Error::InvalidAreaID)?;
-                Ok(self.repository.coordinate_by_area_idx(area_idx.index))
+
+                let stops: Vec<_> = self
+                    .repository
+                    .stops_by_area_idx(area.index)
+                    .into_iter()
+                    .filter(|stop| self.repository.stop_idx_has_trips(stop.index))
+                    .collect();
+                if !stops.is_empty() {
+                    Ok(stops)
+                } else {
+                    warn!("Had to use coordinates to satisfy stops for area {id}");
+                    let coordiante = self.repository.coordinate_by_area_idx(area.index);
+                    Ok(self
+                        .repository
+                        .stops_by_coordinate(&coordiante, AVERAGE_STOP_DISTANCE)
+                        .into_iter()
+                        .filter(|stop| self.repository.stop_idx_has_trips(stop.index))
+                        .collect())
+                }
             }
-            Location::Stop(id) => self
+            Location::Stop(id) => {
+                trace!("Possible stop: {id}");
+                let stop = self
+                    .repository
+                    .stop_by_id(id)
+                    .ok_or(self::Error::InvalidStopID)?;
+                if let Some(station_idx) = stop.parent_index {
+                    Ok(self.repository.stops_by_station(station_idx))
+                } else {
+                    let stops = self.repository.stops_by_station(stop.index);
+                    if stops.is_empty() {
+                        Ok(vec![stop])
+                    } else {
+                        Ok(stops)
+                    }
+                }
+            }
+            Location::Coordinate(coordinate) => Ok(self
                 .repository
-                .stop_by_id(id)
-                .map(|stop| stop.coordinate)
-                .ok_or(self::Error::InvalidStopID),
-            Location::Coordinate(coordinate) => Ok(*coordinate),
+                .stops_by_coordinate(coordinate, AVERAGE_STOP_DISTANCE)
+                .into_iter()
+                .filter(|stop| self.repository.stop_idx_has_trips(stop.index))
+                .collect()),
         }
     }
 
@@ -500,36 +517,28 @@ impl<'a> Raptor<'a> {
     }
 
     /// Finds the earliest trip that we can take from current stop based on the time
-    fn find_earliest_trip(
-        &self,
-        route: &RaptorRoute,
-        index: usize,
-        time: Time,
-        buffer: &mut Vec<&'a [StopTime]>,
-    ) -> Option<&Trip> {
-        buffer.clear();
-        buffer.extend(
-            route
-                .trips
-                .iter()
-                .map(|trip_idx| self.repository.stop_times_by_trip_idx(*trip_idx)),
-        );
+    fn find_earliest_trip(&self, route: &RaptorRoute, index: usize, time: Time) -> Option<&Trip> {
         let mut earliest: Option<(u32, Time)> = None;
-        for stop_times in buffer.iter() {
-            let stop_time = &stop_times[index];
-            let departure_time = stop_time.departure_time;
-            // Make sure we don't try to catch a trip that has already left
-            if departure_time < time {
-                continue;
-            }
-            if let Some((_, time_to_beat)) = earliest {
-                if departure_time < time_to_beat {
+
+        route
+            .trips
+            .iter()
+            .map(|trip_idx| self.repository.stop_times_by_trip_idx(*trip_idx))
+            .for_each(|stop_times| {
+                let stop_time = &stop_times[index];
+                let departure_time = stop_time.departure_time;
+                // Make sure we don't try to catch a trip that has already left
+                if departure_time < time {
+                    return;
+                }
+                if let Some((_, time_to_beat)) = earliest {
+                    if departure_time < time_to_beat {
+                        earliest = Some((stop_time.trip_idx, departure_time));
+                    }
+                } else {
                     earliest = Some((stop_time.trip_idx, departure_time));
                 }
-            } else {
-                earliest = Some((stop_time.trip_idx, departure_time));
-            }
-        }
+            });
 
         if let Some((trip_idx, _)) = earliest {
             Some(&self.repository.trips[trip_idx as usize])

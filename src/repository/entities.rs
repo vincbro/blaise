@@ -70,8 +70,10 @@ pub struct Stop {
     /// Normalized name used for fuzzy search comparisons.
     pub normalized_name: Arc<str>,
     pub coordinate: Coordinate,
-    /// The specific GTFS location classification.
-    pub location_type: LocationType,
+    /// The index of the parent station/platform
+    pub parent_index: Option<u32>,
+    // The specific GTFS location classification.
+    // pub location_type: LocationType,
 }
 
 impl Identifiable for Stop {

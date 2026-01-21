@@ -104,12 +104,16 @@ pub async fn routing(
     }
 }
 
-fn location_from_str(repo: &Repository, str: &str) -> Result<Location, StatusCode> {
+fn location_from_str(repository: &Repository, str: &str) -> Result<Location, StatusCode> {
     if str.contains(',') {
         let coordinate = Coordinate::from_str(str).map_err(|_| StatusCode::BAD_REQUEST)?;
         Ok(coordinate.into())
+    } else if let Some(area) = repository.area_by_id(str) {
+        Ok(area.into())
+    } else if let Some(stop) = repository.stop_by_id(str) {
+        Ok(stop.into())
     } else {
-        Ok(repo.area_by_id(str).ok_or(StatusCode::BAD_REQUEST)?.into())
+        Err(StatusCode::BAD_REQUEST)
     }
 }
 

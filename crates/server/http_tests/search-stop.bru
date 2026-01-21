@@ -1,17 +1,17 @@
 meta {
-  name: search
+  name: search/stop
   type: http
   seq: 1
 }
 
 get {
-  url: http://localhost:3000/search?q=S:t Eriksplan
+  url: http://localhost:3000/search/stop?q=stockholm city
   body: none
   auth: inherit
 }
 
 params:query {
-  q: S:t Eriksplan
+  q: stockholm city
   ~count: 5
 }
 

@@ -1,6 +1,5 @@
 use crate::{
     gtfs::{self, Gtfs},
-    prelude::LocationType,
     repository::{
         Area, Cell, RaptorRoute, Repository, Route, Stop, StopTime, StopTimeSlice, Transfer, Trip,
     },
@@ -30,15 +29,39 @@ impl Repository {
         debug!("Loading stops...");
         let now = Instant::now();
         let mut stop_lookup: HashMap<Arc<str>, u32> = HashMap::new();
-        let mut stops: Vec<Stop> = Vec::new();
-        gtfs.stream_stops(|(i, stop)| {
+        let mut stops: Vec<(Stop, Option<String>)> = Vec::new();
+        gtfs.stream_stops(|(i, mut stop)| {
+            let parent_station = stop.parent_station.take();
             let mut value: Stop = stop.into();
             value.index = i as u32;
             stop_lookup.insert(value.id.clone(), i as u32);
-            stops.push(value);
+            stops.push((value, parent_station));
         })?;
-        self.stops = stops.into();
         self.stop_lookup = stop_lookup;
+
+        let mut station_to_stops: Vec<Vec<u32>> = vec![Vec::new(); stops.len()];
+        stops
+            .iter_mut()
+            .filter_map(|(stop, parent_station)| {
+                if let Some(parent_station) = parent_station {
+                    self.stop_lookup
+                        .get(parent_station.as_str())
+                        .map(|parent_staiton| (*parent_staiton, stop))
+                } else {
+                    None
+                }
+            })
+            .for_each(|(parent_station, stop)| {
+                station_to_stops[parent_station as usize].push(stop.index);
+                stop.parent_index = Some(parent_station);
+            });
+
+        self.stops = stops.into_iter().map(|(stop, _)| stop).collect();
+        self.station_to_stops = station_to_stops
+            .into_iter()
+            .map(|stops| stops.into())
+            .collect();
+
         debug!("Loading stops took {:?}", now.elapsed());
         Ok(())
     }

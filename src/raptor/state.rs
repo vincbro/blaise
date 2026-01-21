@@ -11,15 +11,6 @@ impl ParentType {
     pub fn is_transit(&self) -> bool {
         matches!(self, ParentType::Transit(_))
     }
-
-    // Unused for now
-    // pub fn is_transfer(&self) -> bool {
-    //     matches!(self, ParentType::Transfer)
-    // }
-
-    pub fn is_walk(&self) -> bool {
-        matches!(self, ParentType::Walk)
-    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -81,5 +72,33 @@ impl Update {
             arrival_time,
             parent,
         }
+    }
+}
+
+pub struct LazyBuffer<T> {
+    buffer: Option<Vec<T>>,
+    capacity: usize,
+}
+
+impl<T> LazyBuffer<T> {
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            buffer: None,
+            capacity,
+        }
+    }
+
+    pub fn push(&mut self, value: T) {
+        if let Some(buffer) = &mut self.buffer {
+            buffer.push(value);
+        } else {
+            let mut buffer = Vec::with_capacity(self.capacity);
+            buffer.push(value);
+            self.buffer = Some(buffer);
+        }
+    }
+
+    pub fn get(mut self) -> Option<Vec<T>> {
+        self.buffer.take()
     }
 }

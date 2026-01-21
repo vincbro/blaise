@@ -1,18 +1,18 @@
 meta {
-  name: near
+  name: near/area
   type: http
   seq: 3
 }
 
 get {
-  url: http://localhost:3000/near?q=59.583620270018756,17.893913022498964&distance=500
+  url: http://localhost:3000/near/area?q=59.583620270018756,17.893913022498964
   body: none
   auth: inherit
 }
 
 params:query {
   q: 59.583620270018756,17.893913022498964
-  distance: 500
+  ~distance: 500
 }
 
 settings {

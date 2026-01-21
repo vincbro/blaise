@@ -1,9 +1,6 @@
 mod entities;
 pub mod source;
 
-pub use entities::*;
-use std::{collections::HashMap, sync::Arc};
-
 use crate::{
     raptor::{Location, Raptor},
     shared::{
@@ -11,6 +8,8 @@ use crate::{
         geo::{AVERAGE_STOP_DISTANCE, Coordinate, Distance},
     },
 };
+pub use entities::*;
+use std::{collections::HashMap, sync::Arc};
 
 pub type Cell = (i32, i32);
 
@@ -52,27 +51,29 @@ pub struct Repository {
 
     // --- Relationship Indicies (Adjacency Lists) ---
     /// Index mapping: `route_index -> [trip_index, ...]`.
-    route_to_trips: Box<[Box<[u32]>]>,
+    pub(crate) route_to_trips: Box<[Box<[u32]>]>,
     /// Index mapping: `trip_index -> route_index`.
-    trip_to_route: Box<[u32]>,
+    pub(crate) trip_to_route: Box<[u32]>,
     /// Index mapping: `area_index -> [stop_index, ...]`.
-    area_to_stops: Box<[Box<[u32]>]>,
+    pub(crate) area_to_stops: Box<[Box<[u32]>]>,
     /// Index mapping: `stop_index -> area_index`.
-    stop_to_area: Box<[Option<u32>]>,
+    pub(crate) stop_to_area: Box<[Option<u32>]>,
+    /// Index mapping: `stop_index -> [stop_index, ...]`.
+    pub(crate) station_to_stops: Box<[Box<[u32]>]>,
     /// Index mapping: `stop_index -> [transfer_index, ...]`.
-    stop_to_transfers: Box<[Box<[u32]>]>,
+    pub(crate) stop_to_transfers: Box<[Box<[u32]>]>,
     /// Index mapping: `stop_index -> [trip_index, ...]`.
-    stop_to_trips: Box<[Box<[u32]>]>,
+    pub(crate) stop_to_trips: Box<[Box<[u32]>]>,
     /// Defines the range within the `stop_times` slice that belongs to a specific trip.
-    trip_to_stop_slice: Box<[StopTimeSlice]>,
+    pub(crate) trip_to_stop_slice: Box<[StopTimeSlice]>,
 
     // --- RAPTOR Specialized Lookups ---
     /// Maps a standard route index to its corresponding `RaptorRoute` versions.
-    route_to_raptors: Box<[Box<[u32]>]>,
+    pub(crate) route_to_raptors: Box<[Box<[u32]>]>,
     /// Maps a stop index to all `RaptorRoute` indices that serve it.
-    stop_to_raptors: Box<[Box<[u32]>]>,
+    pub(crate) stop_to_raptors: Box<[Box<[u32]>]>,
     /// Maps a stop index to all walkable stops near it.
-    stop_to_walk_stop: Box<[Box<[u32]>]>,
+    pub(crate) stop_to_walk_stop: Box<[Box<[u32]>]>,
 }
 
 impl Repository {
@@ -123,6 +124,19 @@ impl Repository {
     pub fn stops_by_area_idx(&self, area_idx: u32) -> Vec<&Stop> {
         self.area_to_stops[area_idx as usize]
             .iter()
+            .flat_map(|stop_idx| {
+                let children = &self.station_to_stops[*stop_idx as usize];
+                children
+                    .iter()
+                    .map(|stop_idx| &self.stops[*stop_idx as usize])
+            })
+            .collect()
+    }
+
+    /// Returns a list of all stops contained within a specific parent stop.
+    pub fn stops_by_station(&self, stop_idx: u32) -> Vec<&Stop> {
+        self.station_to_stops[stop_idx as usize]
+            .iter()
             .map(|stop_idx| &self.stops[*stop_idx as usize])
             .collect()
     }
@@ -157,6 +171,11 @@ impl Repository {
             .iter()
             .map(|trip_idx| &self.trips[*trip_idx as usize])
             .collect()
+    }
+
+    /// Returns true if a specific [`Stop`] using it's index (`Stop.index`) has any trips connected to it.
+    pub fn stop_idx_has_trips(&self, stop_idx: u32) -> bool {
+        !self.stop_to_trips[stop_idx as usize].is_empty()
     }
 
     /// Identifies which high-level [`Route`] a specific [`Trip`] belongs to using it's index (`Trip.index`).
