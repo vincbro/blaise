@@ -19,7 +19,7 @@ impl Repository {
         self.load_transfers(&mut gtfs)?;
         self.load_stop_times(&mut gtfs)?;
         self.generate_geo_hash();
-        self.generate_spatial_grid();
+        // self.generate_spatial_grid();
         self.generate_raptor_routes();
         self.generate_walks();
         Ok(self)

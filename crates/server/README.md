@@ -31,6 +31,7 @@ services:
     environment:
       - GTFS_DATA_PATH=/app/data/GTFS.zip
       - ALLOCATOR_COUNT=32
+      - LOG_LEVEL=info
     volumes:
       - ./gtfs_data:/app/data
     restart: unless-stopped
@@ -72,7 +73,7 @@ Can be: `error` `warn` `info` `debug` `trace`
 
 ## Endpoints
 
-### /search
+### /search/area
 Perform a fuzzy search for transit areas by name.
 
 **Example Request** `GET` `/search?q=S:t Eriksplan`
@@ -94,9 +95,54 @@ Perform a fuzzy search for transit areas by name.
 ]
 ```
 
+### /search/stop
+Perform a fuzzy search for transit stops by name.
 
-### /near
+**Example Request** `GET` `/search?q=S:t Eriksplan`
+- `q`: **[REQUIRED]** The search query (e.g., "S:t Eriksplan")..
+- `count`: Max results to return (Defaults to 5)..
+
+**Output**
+```json
+[
+  {
+    "id": "740021665",
+    "name": "S:t Eriksplan T-bana",
+    "coordinate": {
+      "latitude": 59.34002,
+      "longitude": 18.03799
+    }
+  },
+  ... shortened for readability
+]
+```
+
+
+### /near/area
 Find transit areas near a specific geographic coordinate.
+
+**Example Request** `GET` `/near?q=59.330569,18.058913`
+- `q`: **[REQUIRED]** Coordinate string in lat,lng format..
+- `distance`: Max search radius in meters (Defaults to 500)..
+
+**Output**
+```json
+[
+  {
+    "id": "740021665",
+    "name": "S:t Eriksplan T-bana",
+    "coordinate": {
+      "latitude": 59.34002,
+      "longitude": 18.03799
+    }
+  },
+  ... shortened for readability
+]
+```
+
+
+### /near/stop
+Find transit stops near a specific geographic coordinate.
 
 **Example Request** `GET` `/near?q=59.330569,18.058913`
 - `q`: **[REQUIRED]** Coordinate string in lat,lng format..
@@ -122,118 +168,123 @@ Find transit areas near a specific geographic coordinate.
 ### /routing
 Calculate the optimal path between two points using the RAPTOR algorithm.
 
-A `location` can be a coordinate or a area `id`
+A `location` can be a coordinate or a area/stop `id`
 
 **Example Request** `GET` `/routing?from=59.330569, 18.059278&to=740021665`
-- `from`: **[REQUIRED]** Starting point (Area ID or lat,lng coordinate)..
-- `to`: **[REQUIRED]** Destination (Area ID or lat,lng coordinate)..
+- `from`: **[REQUIRED]** Starting point (Area ID, Stop ID or lat,lng coordinate)..
+- `to`: **[REQUIRED]** Destination (Area ID, Stop ID or lat,lng coordinate)..
 - `departure_at`: Departure time in hms format `HH:MM:SS` `16:15:37` (Defaults to current system time).
 
 **Output**
 ```json
 {
   "from": {
-    "Coordinate": {
-      "latitude": 59.33057,
-      "longitude": 18.059278
-    }
+    "type": "coordinate",
+    "latitude": 59.33057,
+    "longitude": 18.059278
   },
   "to": {
-    "Area": {
-      "id": "740021665",
-      "name": "S:t Eriksplan T-bana",
-      "coordinate": {
-        "latitude": 59.34002,
-        "longitude": 18.03799
-      }
+    "type": "area",
+    "id": "740021665",
+    "name": "S:t Eriksplan T-bana",
+    "coordinate": {
+      "latitude": 59.339966,
+      "longitude": 18.03757
     }
   },
   "legs": [
     {
       "from": {
-        "Coordinate": {
-          "latitude": 59.33057,
-          "longitude": 18.059278
+        "type": "stop",
+        "id": "9022050009825003",
+        "name": "T-Centralen",
+        "coordinate": {
+          "latitude": 59.331524,
+          "longitude": 18.06124
         }
       },
       "to": {
-        "Stop": {
-          "id": "9022050009825003",
-          "name": "T-Centralen",
-          "coordinate": {
-            "latitude": 59.331524,
-            "longitude": 18.06124
-          }
+        "type": "stop",
+        "id": "9022050009828001",
+        "name": "S:t Eriksplan",
+        "coordinate": {
+          "latitude": 59.340294,
+          "longitude": 18.037416
         }
       },
-      "departue_time": 57600,
-      "arrival_time": 57734,
-      "stops": [],
-      "leg_type": "Walk"
-    },
-    {
-      "from": {
-        "Stop": {
-          "id": "9022050009825003",
-          "name": "T-Centralen",
-          "coordinate": {
-            "latitude": 59.331524,
-            "longitude": 18.06124
-          }
-        }
-      },
-      "to": {
-        "Stop": {
-          "id": "9022050009828001",
-          "name": "S:t Eriksplan",
-          "coordinate": {
-            "latitude": 59.340294,
-            "longitude": 18.037416
-          }
-        }
-      },
-      "departue_time": 57792,
-      "arrival_time": 58152,
+      "departue_time": 23502,
+      "arrival_time": 23844,
       "stops": [
         {
           "location": {
-            "Stop": {
-              "id": "9022050009825003",
-              "name": "T-Centralen",
-              "coordinate": {
-                "latitude": 59.331524,
-                "longitude": 18.06124
-              }
+            "type": "stop",
+            "id": "9022050009825003",
+            "name": "T-Centralen",
+            "coordinate": {
+              "latitude": 59.331524,
+              "longitude": 18.06124
             }
           },
-          "departure_time": 57792,
-          "arrival_time": 57750
+          "departure_time": 23502,
+          "arrival_time": 23460
         },
-        ... shortened for readability
+        {
+          "location": {
+            "type": "stop",
+            "id": "9022050010775001",
+            "name": "Hötorget",
+            "coordinate": {
+              "latitude": 59.335606,
+              "longitude": 18.062963
+            }
+          },
+          "departure_time": 23586,
+          "arrival_time": 23556
+        },
+        {
+          "location": {
+            "type": "stop",
+            "id": "9022050009826001",
+            "name": "Rådmansgatan",
+            "coordinate": {
+              "latitude": 59.340885,
+              "longitude": 18.0579
+            }
+          },
+          "departure_time": 23682,
+          "arrival_time": 23652
+        },
+        {
+          "location": {
+            "type": "stop",
+            "id": "9022050009827001",
+            "name": "Odenplan",
+            "coordinate": {
+              "latitude": 59.34276,
+              "longitude": 18.0486
+            }
+          },
+          "departure_time": 23778,
+          "arrival_time": 23748
+        },
+        {
+          "location": {
+            "type": "stop",
+            "id": "9022050009828001",
+            "name": "S:t Eriksplan",
+            "coordinate": {
+              "latitude": 59.340294,
+              "longitude": 18.037416
+            }
+          },
+          "departure_time": 23874,
+          "arrival_time": 23844
+        }
       ],
-      "leg_type": "Transit"
-    },
-    {
-      "from": {
-        "Stop": {
-          "id": "9022050009828001",
-          "name": "S:t Eriksplan",
-          "coordinate": {
-            "latitude": 59.340294,
-            "longitude": 18.037416
-          }
-        }
-      },
-      "to": {
-        "Coordinate": {
-          "latitude": 59.34002,
-          "longitude": 18.03799
-        }
-      },
-      "departue_time": 58152,
-      "arrival_time": 58191,
-      "stops": [],
-      "leg_type": "Walk"
+      "mode": "Subway",
+      "head_sign": null,
+      "long_name": "Gröna linjen",
+      "short_name": "17"
     }
   ]
 }
