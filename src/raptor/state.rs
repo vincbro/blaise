@@ -98,7 +98,11 @@ impl<T> LazyBuffer<T> {
         }
     }
 
-    pub fn get(mut self) -> Option<Vec<T>> {
+    pub fn take(mut self) -> Option<Vec<T>> {
         self.buffer.take()
+    }
+
+    pub fn swap(&mut self) -> Vec<T> {
+        self.buffer.take().unwrap_or_default()
     }
 }

@@ -63,17 +63,17 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("Routing");
 
-    group.warm_up_time(Duration::from_secs(5));
+    group.warm_up_time(Duration::from_secs(10));
 
     group.measurement_time(Duration::from_secs(30));
 
-    group.bench_function("Distance 1x", |b| {
-        b.iter(|| geo_lookup_tile_size(&repository))
-    });
+    // group.bench_function("Distance 1x", |b| {
+    //     b.iter(|| geo_lookup_tile_size(&repository))
+    // });
 
-    group.bench_function("Distance 10x", |b| {
-        b.iter(|| geo_lookup_10x_tile_size(&repository))
-    });
+    // group.bench_function("Distance 10x", |b| {
+    //     b.iter(|| geo_lookup_10x_tile_size(&repository))
+    // });
 
     group.bench_function("Short route solve", |b| {
         b.iter(|| short_solve(&repository, &mut allocator))

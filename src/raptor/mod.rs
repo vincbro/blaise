@@ -172,7 +172,6 @@ impl<'a> Raptor<'a> {
         let mut target_best_stop: Option<u32> = None;
         let mut target_best_round: Option<usize> = None;
 
-        // We always start at round 1 since the base round is 0
         let mut round: usize = 0;
         loop {
             if round >= MAX_ROUNDS {
@@ -214,60 +213,64 @@ impl<'a> Raptor<'a> {
                 .active
                 .par_iter()
                 .enumerate()
-                .filter_map(|(r_idx, p_idx)| p_idx.map(|p_idx| (r_idx, p_idx)))
-                .filter_map(|(route_idx, p_idx)| {
-                    // We walk down each route starting from
-                    // the earliest stop in the route we updated last round
+                .map_init(
+                    || LazyBuffer::new(32),
+                    |buffer, (route_idx, p_idx)| {
+                        let p_idx = match p_idx {
+                            Some(p_idx) => *p_idx,
+                            None => return vec![],
+                        };
+                        // We walk down each route starting from
+                        // the earliest stop in the route we updated last round
 
-                    let route = &self.repository.raptor_routes[route_idx];
-                    let mut active_trip: Option<&Trip> = None;
-                    let mut boarding_stop: u32 = u32::MAX;
-                    let mut boarding_p: usize = usize::MAX;
+                        let route = &self.repository.raptor_routes[route_idx];
+                        let mut active_trip: Option<&Trip> = None;
+                        let mut boarding_stop: u32 = u32::MAX;
+                        let mut boarding_p: usize = usize::MAX;
 
-                    // --- Buffers ---
-                    let mut updates_buffer: LazyBuffer<Update> = LazyBuffer::new(32);
-
-                    for (i, stop_idx) in route.stops.iter().enumerate().skip(p_idx as usize) {
-                        // PART A
-                        // Walk a certain trip and mark any stop were we improve our time
-                        if let Some(trip) = active_trip
-                            && let arrival_time = self.get_arrival_time(trip.index, i)
-                            && arrival_time
-                                < allocator.tau_star[*stop_idx as usize].unwrap_or(u32::MAX.into())
-                            && arrival_time < target_best
-                        {
-                            updates_buffer.push(Update::new(
-                                *stop_idx,
-                                arrival_time,
-                                Parent::new_transit(
-                                    boarding_stop.into(),
-                                    (*stop_idx).into(),
-                                    trip.index,
-                                    self.get_departure_time(trip.index, boarding_p),
+                        for (i, stop_idx) in route.stops.iter().enumerate().skip(p_idx as usize) {
+                            // PART A
+                            // Walk a certain trip and mark any stop were we improve our time
+                            if let Some(trip) = active_trip
+                                && let arrival_time = self.get_arrival_time(trip.index, i)
+                                && arrival_time
+                                    < allocator.tau_star[*stop_idx as usize]
+                                        .unwrap_or(u32::MAX.into())
+                                && arrival_time < target_best
+                            {
+                                buffer.push(Update::new(
+                                    *stop_idx,
                                     arrival_time,
-                                ),
-                            ));
-                        }
+                                    Parent::new_transit(
+                                        boarding_stop.into(),
+                                        (*stop_idx).into(),
+                                        trip.index,
+                                        self.get_departure_time(trip.index, boarding_p),
+                                        arrival_time,
+                                    ),
+                                ));
+                            }
 
-                        // PART B
-                        // See if we could have catched an earlier trip to get to were we currently are
-                        let prev_round_arrival =
-                            allocator.prev_labels[*stop_idx as usize].unwrap_or(u32::MAX.into());
-                        let current_trip_dep = active_trip
-                            .map(|t| self.get_departure_time(t.index, i))
-                            .unwrap_or(u32::MAX.into());
+                            // PART B
+                            // See if we could have catched an earlier trip to get to were we currently are
+                            let prev_round_arrival = allocator.prev_labels[*stop_idx as usize]
+                                .unwrap_or(u32::MAX.into());
+                            let current_trip_dep = active_trip
+                                .map(|t| self.get_departure_time(t.index, i))
+                                .unwrap_or(u32::MAX.into());
 
-                        if prev_round_arrival <= current_trip_dep
-                            && let Some(earlier_trip) =
-                                self.find_earliest_trip(route, i, prev_round_arrival)
-                        {
-                            active_trip = Some(earlier_trip);
-                            boarding_stop = *stop_idx;
-                            boarding_p = i;
+                            if prev_round_arrival <= current_trip_dep
+                                && let Some(earlier_trip) =
+                                    self.find_earliest_trip(route, i, prev_round_arrival)
+                            {
+                                active_trip = Some(earlier_trip);
+                                boarding_stop = *stop_idx;
+                                boarding_p = i;
+                            }
                         }
-                    }
-                    updates_buffer.get()
-                })
+                        buffer.swap()
+                    },
+                )
                 .flatten();
             allocator.updates.par_extend(updates);
             allocator.run_updates(round);
@@ -275,61 +278,63 @@ impl<'a> Raptor<'a> {
             let updates = allocator
                 .get_marked_stops()
                 .into_par_iter()
-                .filter_map(|stop_idx| {
-                    let mut updates_buffer: LazyBuffer<Update> = LazyBuffer::new(64);
-                    // All the possible transfers
-                    for transfer in self.repository.transfers_by_stop_idx(stop_idx as u32) {
-                        let departure_time =
-                            allocator.curr_labels[stop_idx].unwrap_or(u32::MAX.into());
-                        let arrival_time = departure_time + self.transfer_duration(transfer);
-                        if arrival_time
-                            < allocator.tau_star[transfer.to_stop_idx as usize]
-                                .unwrap_or(u32::MAX.into())
-                            && arrival_time < target_best
-                        {
-                            updates_buffer.push(Update::new(
-                                transfer.to_stop_idx,
-                                arrival_time,
-                                Parent::new_transfer(
-                                    (stop_idx as u32).into(),
-                                    transfer.to_stop_idx.into(),
-                                    departure_time,
-                                    arrival_time,
-                                ),
-                            ));
-                        }
-                    }
-
-                    let current_stop = &self.repository.stops[stop_idx];
-                    self.repository
-                        .nearby_stops_by_stop_idx(current_stop.index)
-                        .into_iter()
-                        .for_each(|next_stop| {
-                            let walking_distance = current_stop
-                                .coordinate
-                                .network_distance(&next_stop.coordinate);
+                .map_init(
+                    || LazyBuffer::<Update>::new(32),
+                    |buffer, stop_idx| {
+                        // All the possible transfers
+                        for transfer in self.repository.transfers_by_stop_idx(stop_idx as u32) {
                             let departure_time =
                                 allocator.curr_labels[stop_idx].unwrap_or(u32::MAX.into());
-                            let arrival_time = departure_time + time_to_walk(walking_distance);
+                            let arrival_time = departure_time + self.transfer_duration(transfer);
                             if arrival_time
-                                < allocator.tau_star[next_stop.index as usize]
+                                < allocator.tau_star[transfer.to_stop_idx as usize]
                                     .unwrap_or(u32::MAX.into())
                                 && arrival_time < target_best
                             {
-                                updates_buffer.push(Update::new(
-                                    next_stop.index,
+                                buffer.push(Update::new(
+                                    transfer.to_stop_idx,
                                     arrival_time,
-                                    Parent::new_walk(
+                                    Parent::new_transfer(
                                         (stop_idx as u32).into(),
-                                        next_stop.index.into(),
+                                        transfer.to_stop_idx.into(),
                                         departure_time,
                                         arrival_time,
                                     ),
                                 ));
                             }
-                        });
-                    updates_buffer.get()
-                })
+                        }
+
+                        let current_stop = &self.repository.stops[stop_idx];
+                        self.repository
+                            .nearby_stops_by_stop_idx(current_stop.index)
+                            .into_iter()
+                            .for_each(|next_stop| {
+                                let walking_distance = current_stop
+                                    .coordinate
+                                    .network_distance(&next_stop.coordinate);
+                                let departure_time =
+                                    allocator.curr_labels[stop_idx].unwrap_or(u32::MAX.into());
+                                let arrival_time = departure_time + time_to_walk(walking_distance);
+                                if arrival_time
+                                    < allocator.tau_star[next_stop.index as usize]
+                                        .unwrap_or(u32::MAX.into())
+                                    && arrival_time < target_best
+                                {
+                                    buffer.push(Update::new(
+                                        next_stop.index,
+                                        arrival_time,
+                                        Parent::new_walk(
+                                            (stop_idx as u32).into(),
+                                            next_stop.index.into(),
+                                            departure_time,
+                                            arrival_time,
+                                        ),
+                                    ));
+                                }
+                            });
+                        buffer.swap()
+                    },
+                )
                 .flatten();
             allocator.updates.par_extend(updates);
             allocator.run_updates(round);
