@@ -1,5 +1,5 @@
 use crate::{
-    raptor::{MAX_ROUNDS, Parent, Update},
+    raptor::{MAX_ROUNDS, Parent, ServingRoute, Target, Update},
     repository::Repository,
     shared::Time,
 };
@@ -29,6 +29,10 @@ pub struct Allocator {
     pub(crate) active: Vec<Option<u32>>,
     /// Total number of stops in the associated repository.
     pub(crate) stop_count: usize,
+    /// Pre allocated buffer to skip heap allocations.
+    pub(crate) routes_serving_stops: Vec<ServingRoute>,
+    /// Holds the target data
+    pub(crate) target: Target,
 }
 
 impl Allocator {
@@ -47,6 +51,8 @@ impl Allocator {
             updates: Vec::with_capacity(1024),
             active: vec![None; repository.raptor_routes.len()],
             stop_count: repository.stops.len(),
+            routes_serving_stops: Vec::with_capacity(64),
+            target: Target::new(),
         }
     }
 
@@ -60,6 +66,8 @@ impl Allocator {
         self.parents.fill(None);
         self.active.fill(None);
         self.updates.clear();
+        self.routes_serving_stops.clear();
+        self.target.clear();
     }
 
     pub(crate) fn run_updates(&mut self, round: usize) {
@@ -92,6 +100,38 @@ impl Allocator {
     pub(crate) fn swap_labels(&mut self) {
         mem::swap(&mut self.curr_labels, &mut self.prev_labels);
         self.curr_labels.fill(None);
+    }
+}
+
+pub struct LazyBuffer<T> {
+    buffer: Option<Vec<T>>,
+    capacity: usize,
+}
+
+impl<T> LazyBuffer<T> {
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            buffer: None,
+            capacity,
+        }
+    }
+
+    pub fn push(&mut self, value: T) {
+        if let Some(buffer) = &mut self.buffer {
+            buffer.push(value);
+        } else {
+            let mut buffer = Vec::with_capacity(self.capacity);
+            buffer.push(value);
+            self.buffer = Some(buffer);
+        }
+    }
+
+    pub fn take(mut self) -> Option<Vec<T>> {
+        self.buffer.take()
+    }
+
+    pub fn swap(&mut self) -> Vec<T> {
+        self.buffer.take().unwrap_or_default()
     }
 }
 

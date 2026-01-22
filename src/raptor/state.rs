@@ -1,15 +1,19 @@
-use crate::{raptor::location::Point, shared::Time};
+use crate::{raptor::Point, shared::Time};
 
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum ParentType {
-    Transit(u32),
-    Transfer,
-    Walk,
+#[derive(Debug, Clone)]
+pub(crate) struct Update {
+    pub stop_idx: u32,
+    pub arrival_time: Time,
+    pub parent: Parent,
 }
 
-impl ParentType {
-    pub fn is_transit(&self) -> bool {
-        matches!(self, ParentType::Transit(_))
+impl Update {
+    pub fn new(stop_idx: u32, arrival_time: Time, parent: Parent) -> Self {
+        Self {
+            stop_idx,
+            arrival_time,
+            parent,
+        }
     }
 }
 
@@ -58,51 +62,41 @@ impl Parent {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum ParentType {
+    Transit(u32),
+    Transfer,
+    Walk,
+}
+
+impl ParentType {
+    pub fn is_transit(&self) -> bool {
+        matches!(self, ParentType::Transit(_))
+    }
+}
+
 #[derive(Debug, Clone)]
-pub(crate) struct Update {
-    pub stop_idx: u32,
-    pub arrival_time: Time,
-    pub parent: Parent,
+pub(crate) struct Target {
+    pub stops: Vec<u32>,
+    pub tau_star: Time,
+    pub best_stop: Option<u32>,
+    pub best_round: Option<usize>,
 }
 
-impl Update {
-    pub fn new(stop_idx: u32, arrival_time: Time, parent: Parent) -> Self {
+impl Target {
+    pub fn new() -> Self {
         Self {
-            stop_idx,
-            arrival_time,
-            parent,
-        }
-    }
-}
-
-pub struct LazyBuffer<T> {
-    buffer: Option<Vec<T>>,
-    capacity: usize,
-}
-
-impl<T> LazyBuffer<T> {
-    pub fn new(capacity: usize) -> Self {
-        Self {
-            buffer: None,
-            capacity,
+            stops: vec![],
+            tau_star: u32::MAX.into(),
+            best_stop: None,
+            best_round: None,
         }
     }
 
-    pub fn push(&mut self, value: T) {
-        if let Some(buffer) = &mut self.buffer {
-            buffer.push(value);
-        } else {
-            let mut buffer = Vec::with_capacity(self.capacity);
-            buffer.push(value);
-            self.buffer = Some(buffer);
-        }
-    }
-
-    pub fn take(mut self) -> Option<Vec<T>> {
-        self.buffer.take()
-    }
-
-    pub fn swap(&mut self) -> Vec<T> {
-        self.buffer.take().unwrap_or_default()
+    pub fn clear(&mut self) {
+        self.stops.clear();
+        self.tau_star = u32::MAX.into();
+        self.best_stop = None;
+        self.best_round = None;
     }
 }

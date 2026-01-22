@@ -1,7 +1,7 @@
 use crate::{
     raptor::{
+        Parent, ParentType,
         location::{Location, Point},
-        state::{Parent, ParentType},
     },
     repository::Repository,
     shared::time::Time,
