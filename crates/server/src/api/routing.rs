@@ -14,7 +14,7 @@ use std::{
     str::{self, FromStr},
     sync::Arc,
 };
-use tracing::{trace, warn};
+use tracing::{debug, trace, warn};
 
 pub async fn routing(
     Query(params): Query<HashMap<String, String>>,
@@ -63,7 +63,7 @@ pub async fn routing(
             {
                 let from = repository.stop_by_id(from_stop).unwrap();
                 let to = repository.stop_by_id(to_stop).unwrap();
-                trace!(
+                debug!(
                     "{leg_type} {} -> {} @ {} -> {}",
                     from.name,
                     to.name,
@@ -73,7 +73,7 @@ pub async fn routing(
                 leg.stops.iter().for_each(|leg_stop| {
                     if let Location::Stop(stop_id) = &leg_stop.location {
                         let stop = repository.stop_by_id(stop_id).unwrap();
-                        trace!(
+                        debug!(
                             "| {} @ {} -> {}",
                             stop.name,
                             leg_stop.arrival_time.to_hms_string(),
@@ -85,7 +85,7 @@ pub async fn routing(
                 && let Location::Stop(to_stop) = &leg.to
             {
                 let to = repository.stop_by_id(to_stop).unwrap();
-                trace!(
+                debug!(
                     "{leg_type} {} -> {} @ {} -> {}",
                     from_coord,
                     to.name,
@@ -96,7 +96,7 @@ pub async fn routing(
                 && let Location::Coordinate(to_coord) = &leg.to
             {
                 let from = repository.stop_by_id(from_stop).unwrap();
-                trace!(
+                debug!(
                     "{leg_type} {} -> {} @ {} -> {}",
                     from.name,
                     to_coord,

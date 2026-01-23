@@ -61,7 +61,7 @@ async fn main() {
             .from_zip(&app_state.gtfs_data_path)
             .expect("Failed to build gtfs reader");
         let repo = Repository::new()
-            .load_gtfs(data)
+            .load_gtfs(reader)
             .expect("Failed to load gtfs data in repository");
         info!("Loading data took {:?}", now.elapsed());
         info!("Allocating {alloc_count} pools...");
