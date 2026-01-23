@@ -42,7 +42,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     };
 
     let gtfs = Gtfs::new()
-        .from_zip(gtfs_data_path)
+        .from_zip_cache(gtfs_data_path)
         .expect("Failed to load GTFS zip");
     let repository = Repository::new()
         .load_gtfs(gtfs)

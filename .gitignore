@@ -1,3 +1,4 @@
 **/target
 *.zip
+crates/server/sweden
 .direnv/

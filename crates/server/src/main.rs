@@ -58,15 +58,18 @@ async fn main() {
         info!("Loading data...");
         let now = Instant::now();
         let data = Gtfs::new()
-            .from_zip(&app_state.gtfs_data_path)
+            .from_zip_cache(&app_state.gtfs_data_path)
             .expect("Failed to create gtfs data set");
         let repo = Repository::new()
             .load_gtfs(data)
             .expect("Failed to load gtfs data in repository");
+        info!("Loading data took {:?}", now.elapsed());
+        info!("Allocating {alloc_count} pools...");
+        let now = Instant::now();
         let pool = AllocatorPool::new(alloc_count, &repo);
+        info!("Allocating {alloc_count} pools took {:?}", now.elapsed());
         let _ = app_state.allocator_pool.write().await.replace(pool);
         let _ = app_state.repository.write().await.replace(repo);
-        info!("Loading data took {:?}", now.elapsed());
     } else {
         warn!("No GTFS data found.");
     }
