@@ -85,50 +85,51 @@ pub fn index_in_route(route: &RaptorRoute, stop_idx: u32) -> Option<u32> {
     None
 }
 
-pub fn get_arrival_time(repository: &Repository, trip_idx: u32, index: usize) -> Time {
+pub fn get_arrival_time(repository: &Repository, trip_idx: u32, p_idx: usize) -> Time {
     let stop_times = repository.stop_times_by_trip_idx(trip_idx);
-    stop_times[index].arrival_time
+    stop_times[p_idx].arrival_time
 }
 
-pub fn get_departure_time(repository: &Repository, trip_idx: u32, index: usize) -> Time {
+pub fn get_departure_time(repository: &Repository, trip_idx: u32, p_idx: usize) -> Time {
     let stop_times = repository.stop_times_by_trip_idx(trip_idx);
-    stop_times[index].departure_time
+    stop_times[p_idx].departure_time
+}
+
+/// Finds the latest trip that we can take from current stop based on the time
+pub fn find_latest_trip<'a>(
+    repository: &'a Repository,
+    route: &'a RaptorRoute,
+    p_idx: usize,
+    max_arrival: Time,
+) -> Option<&'a Trip> {
+    let idx = route
+        .trips
+        .partition_point(|&trip_idx| get_arrival_time(repository, trip_idx, p_idx) <= max_arrival);
+
+    if idx == 0 {
+        None
+    } else {
+        route
+            .trips
+            .get(idx - 1)
+            .map(|&t_idx| &repository.trips[t_idx as usize])
+    }
 }
 
 /// Finds the earliest trip that we can take from current stop based on the time
 pub fn find_earliest_trip<'a>(
     repository: &'a Repository,
     route: &'a RaptorRoute,
-    index: usize,
-    time: Time,
+    p_idx: usize,
+    min_departure: Time,
 ) -> Option<&'a Trip> {
-    let mut earliest: Option<(u32, Time)> = None;
-
+    let idx = route
+        .trips
+        .partition_point(|&trip_idx| get_arrival_time(repository, trip_idx, p_idx) < min_departure);
     route
         .trips
-        .iter()
-        .map(|trip_idx| repository.stop_times_by_trip_idx(*trip_idx))
-        .for_each(|stop_times| {
-            let stop_time = &stop_times[index];
-            let departure_time = stop_time.departure_time;
-            // Make sure we don't try to catch a trip that has already left
-            if departure_time < time {
-                return;
-            }
-            if let Some((_, time_to_beat)) = earliest {
-                if departure_time < time_to_beat {
-                    earliest = Some((stop_time.trip_idx, departure_time));
-                }
-            } else {
-                earliest = Some((stop_time.trip_idx, departure_time));
-            }
-        });
-
-    if let Some((trip_idx, _)) = earliest {
-        Some(&repository.trips[trip_idx as usize])
-    } else {
-        None
-    }
+        .get(idx)
+        .map(|&t_idx| &repository.trips[t_idx as usize])
 }
 
 pub fn transfer_duration<'a>(repository: &'a Repository, transfer: &'a Transfer) -> Duration {

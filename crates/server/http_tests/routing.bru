@@ -5,7 +5,7 @@ meta {
 }
 
 get {
-  url: http://localhost:3000/routing?from=740000739&to=740021665&departure_at=06:30:00
+  url: http://localhost:3000/routing?from=740000739&to=740021665&arrive_at=07:10:00
   body: none
   auth: inherit
 }
@@ -13,7 +13,8 @@ get {
 params:query {
   from: 740000739
   to: 740021665
-  departure_at: 06:30:00
+  arrive_at: 07:10:00
+  ~departure_at: 06:30:00
 }
 
 settings {

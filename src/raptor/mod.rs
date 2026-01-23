@@ -14,12 +14,14 @@ pub(crate) use path::*;
 pub(crate) use state::*;
 
 use crate::{
-    raptor::explorer::{explore_routes, explore_transfers},
+    raptor::explorer::{
+        explore_routes, explore_routes_reverse, explore_transfers, explore_transfers_reverse,
+    },
     repository::Repository,
     shared::time::Time,
 };
 use thiserror::Error;
-use tracing::{debug, trace, warn};
+use tracing::{debug, warn};
 
 pub const MAX_ROUNDS: usize = 15;
 
@@ -35,7 +37,7 @@ pub enum Error {
     NoRouteFound,
 }
 
-enum TimeConstraint {
+pub enum TimeConstraint {
     Arrival(Time),
     Departure(Time),
 }
@@ -84,7 +86,6 @@ impl<'a> Raptor<'a> {
             from,
             to,
             time_constraint: TimeConstraint::Departure(Time::now()),
-            // walk_distance: 500.0.into(),
         }
     }
 
@@ -105,6 +106,11 @@ impl<'a> Raptor<'a> {
     /// even for the same origin/destination.
     pub fn arrival_at(mut self, arrival: Time) -> Self {
         self.time_constraint = TimeConstraint::Arrival(arrival);
+        self
+    }
+
+    pub fn with_time_constraint(mut self, constrait: TimeConstraint) -> Self {
+        self.time_constraint = constrait;
         self
     }
 
@@ -144,26 +150,25 @@ impl<'a> Raptor<'a> {
     /// Execution time typically scales with the number of possible routes between
     /// the origin and destination.
     pub fn solve_with_allocator(self, allocator: &mut Allocator) -> Result<Itinerary, self::Error> {
-        let departure_time = match self.time_constraint {
-            TimeConstraint::Arrival(_) => todo!(),
-            TimeConstraint::Departure(time) => time,
-        };
-
         let from_stops = stops_by_location(self.repository, &self.from)?;
-        trace!("Found {} possible starting stops", from_stops.len());
-        from_stops.into_iter().for_each(|stop| {
-            trace!("Found {} as a possible start", stop.id);
-            allocator.marked_stops[stop.index as usize] = true;
-            allocator.curr_labels[stop.index as usize] = Some(departure_time);
-        });
-
-        // Targets
         let to_stops = stops_by_location(self.repository, &self.to)?;
-        trace!("Found {} possible ending stops", to_stops.len());
-        to_stops.iter().for_each(|stop| {
-            trace!("Found {} as a possible ending", stop.id);
-        });
-        allocator.target.stops = to_stops.into_iter().map(|stop| stop.index).collect();
+
+        match self.time_constraint {
+            TimeConstraint::Arrival(time) => {
+                to_stops.into_iter().for_each(|stop| {
+                    allocator.marked_stops[stop.index as usize] = true;
+                    allocator.curr_labels[stop.index as usize] = Some(time);
+                });
+                allocator.target.stops = from_stops.into_iter().map(|stop| stop.index).collect();
+            }
+            TimeConstraint::Departure(time) => {
+                from_stops.into_iter().for_each(|stop| {
+                    allocator.marked_stops[stop.index as usize] = true;
+                    allocator.curr_labels[stop.index as usize] = Some(time);
+                });
+                allocator.target.stops = to_stops.into_iter().map(|stop| stop.index).collect();
+            }
+        }
 
         let mut round: usize = 0;
         loop {
@@ -202,11 +207,22 @@ impl<'a> Raptor<'a> {
                 }
             });
 
-            explore_routes(self.repository, allocator);
-            allocator.run_updates(round);
+            match self.time_constraint {
+                TimeConstraint::Arrival(_) => {
+                    explore_routes_reverse(self.repository, allocator);
+                    allocator.run_updates_reverse(round);
 
-            explore_transfers(self.repository, allocator);
-            allocator.run_updates(round);
+                    explore_transfers_reverse(self.repository, allocator);
+                    allocator.run_updates_reverse(round);
+                }
+                TimeConstraint::Departure(_) => {
+                    explore_routes(self.repository, allocator);
+                    allocator.run_updates(round);
+
+                    explore_transfers(self.repository, allocator);
+                    allocator.run_updates(round);
+                }
+            }
 
             allocator
                 .target
@@ -229,7 +245,13 @@ impl<'a> Raptor<'a> {
         if let Some(target_stop) = allocator.target.best_stop
             && let Some(target_round) = allocator.target.best_round
         {
-            let path = backtrack(self.repository, allocator, target_stop, target_round)?;
+            let path = backtrack(
+                self.repository,
+                allocator,
+                target_stop,
+                target_round,
+                self.time_constraint,
+            )?;
             Ok(Itinerary::new(self.from, self.to, path, self.repository))
         } else {
             Err(self::Error::NoRouteFound)

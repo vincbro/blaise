@@ -7,7 +7,7 @@ use axum::{
 };
 use blaise::{
     prelude::*,
-    raptor::{LegType, Location, Raptor},
+    raptor::{LegType, Location, Raptor, TimeConstraint},
 };
 use std::{
     collections::HashMap,
@@ -34,15 +34,25 @@ pub async fn routing(
             return Err(StatusCode::BAD_REQUEST);
         };
 
-        let departure_at = if let Some(departure_at) = params.get("departure_at") {
-            Time::from_hms(departure_at).ok_or(StatusCode::BAD_REQUEST)?
+        let departure_at = params
+            .get("departure_at")
+            .map(|departure_at| Time::from_hms(departure_at).ok_or(StatusCode::BAD_REQUEST));
+
+        let arrive_at = params
+            .get("arrive_at")
+            .map(|arrive_at| Time::from_hms(arrive_at).ok_or(StatusCode::BAD_REQUEST));
+
+        let time_constrait = if let Some(arrive_at) = arrive_at {
+            TimeConstraint::Arrival(arrive_at?)
+        } else if let Some(departure_at) = departure_at {
+            TimeConstraint::Departure(departure_at?)
         } else {
-            Time::now()
+            TimeConstraint::Departure(Time::now())
         };
 
         let mut gaurd = pool.get_safe(repository);
         let allocator = gaurd.allocator.as_mut().expect("This should never fail");
-        let raptor = Raptor::new(repository, from, to).departure_at(departure_at);
+        let raptor = Raptor::new(repository, from, to).with_time_constraint(time_constrait);
         let itinerary = raptor
             .solve_with_allocator(allocator)
             .expect("Failed to unwrap allocator");

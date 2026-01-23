@@ -84,6 +84,19 @@ impl Allocator {
         self.updates.clear();
     }
 
+    pub(crate) fn run_updates_reverse(&mut self, round: usize) {
+        self.updates.iter().for_each(|update| {
+            let best_time = self.tau_star[update.stop_idx as usize].unwrap_or(0.into());
+            if update.arrival_time > best_time {
+                self.curr_labels[update.stop_idx as usize] = Some(update.arrival_time);
+                self.parents[flat_matrix(round, update.stop_idx as usize, self.stop_count)] =
+                    Some(update.parent);
+                self.tau_star[update.stop_idx as usize] = Some(update.arrival_time);
+                self.marked_stops[update.stop_idx as usize] = true;
+            }
+        });
+        self.updates.clear();
+    }
     pub(crate) fn get_parents(&self, round: usize) -> &[Option<Parent>] {
         let offset = self.stop_count * round;
         &self.parents[offset..offset + self.stop_count]

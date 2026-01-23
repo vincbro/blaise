@@ -32,6 +32,7 @@ blaise = { path = "." }
 [dependencies]
 chrono = "0.4.42"
 csv = "1.4.0"
+gtfs-structures = "0.46.1"
 rayon = "1.11.0"
 serde = { version = "1.0.228", features = ["derive"] }
 thiserror = "2.0.17"
