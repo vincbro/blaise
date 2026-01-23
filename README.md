@@ -11,31 +11,40 @@ a French mathematician and physicist who created the
 first public transit system in Paris in 1662 called the Carrosses à cinq sols.
 
 
-*blaise* is an easy to use, fully local engine for public transit data with a strong focus on performance.
-It handles the heavy lifting of loading, searching, and routing through GTFS transit schedules so you can focus on building your application without relying on external APIs.
+*blaise* is a high-performance, fully local transit engine. It removes the "bottleneck" of developing transit applications and simulations by handling the complex infrastructure of schedule processing and routing entirely on your own hardware.
 
 
-Designed to be a complete local solution, *blaise* supports:
+## Why blaise?
 
-- **Fast routing**: Efficient schedule based pathfinding using a optimized version of the RAPTOR algorithm.
-- **Fuzzy search**: Easily find stops and areas even with partial or imperfect names.
-- **Geospatial search**: Discover transit options based on geographic coordinates.
+Developing apps that use public transit data usually means dealing with high-latency external APIs or the overwhelming complexity of raw GTFS files. blaise provides a better way:
 
+- **Total Control**: No API keys, no rate limits, and no "black-box" routing. You own the code and the data.
+
+- **Built for Scale**: Designed for simulations and high-traffic tools, allowing you to run thousands of queries per second with zero network latency.
+
+- **Privacy First**: Your users' location data and search queries never leave your environment.
+
+- **Transparent Logic**: Built in Rust for speed and predictability. The relationship between stops, trips, and routes is clear and easy to query.
+
+
+## Core Features
+- **Fast Routing**: Efficient schedule-based pathfinding using a highly optimized version of the RAPTOR algorithm.
+
+- **Smart Search**: A built-in fuzzy search engine that handles partial names, typos, and abbreviations for stops and areas.
+
+- **Geospatial Lookups**: Instant discovery of transit options based on geographic coordinates using spatial indexing.
 
 > [!NOTE]
 > This project is early in development, if you like the idea and want to help improve it, please open an issue.
 
 
 ## Server
-While *blaise* is a library, we provide a server for projects that cannot directly integrate with the Rust crate.
-The *blaise* server wraps this functionality in a ready to use REST API, supporting search, proximity queries, and routing out of the box.
-
+While *blaise* is a library, there is also a standalone server for projects that cannot directly integrate with the Rust crate. The *blaise server* wraps this functionality in a ready-to-use REST API, supporting search, proximity queries, and routing out of the box.
 
 [Read more](./crates/server/README.md)
 
 ## Installation
 
-Add *blaise* to your Cargo.toml:
 ```bash
 cargo add blaise
 ```
@@ -43,31 +52,31 @@ cargo add blaise
 ## Quick Start
 
 ```rust
-use blaise::gtfs::{Gtfs, Config};
+use blaise::gtfs::{GtfsReader};
 use blaise::repository::Repository;
-use blaise::router::{Raptor, graph::Location};
+use blaise::router::{Raptor, Location};
 use blaise::shared::{time::Time, geo::Coordinate};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let data = Gtfs::new().from_zip("transit_data.zip")?;
-    let repo = Repository::new().load_gtfs(data)?;
+    let reader = GtfsReader::new().from_zip("gtfs_data.zip")?;
+    let repo = Repository::new().load_gtfs(reader)?;
 
     let from = Location::Stop("STOP_ID_1".into());
     let to = Location::Coordinate(Coordinate { latitude: 59.3, longitude: 18.0 });
     let departure = Time::from_hms("16:00:00")?;
 
-    let raptor =
-        Raptor::new(repo, from, to).departure_at(departure);
+    let raptor = Raptor::new(repo, from, to).departure_at(departure);
     let itinerary = raptor.solve()?;
     println!("Found a path with {} legs!", itinerary.legs.len());
     Ok(())
-} 
+}
 ```
 
 ## Roadmap
 
-- [x] Production-ready web server crate with docker image
+- [x] Web server crate with docker image
 - [x] Multi-threaded routing (Switching to RAPTOR)
+- [x] Arrival and departure time constraints for routing
 - [ ] Real-time data updates (GTFS-RT)
 - [ ] Advanced date and holiday filtering
 

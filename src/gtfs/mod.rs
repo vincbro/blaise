@@ -36,12 +36,12 @@ pub enum Source {
 }
 
 #[derive(Default)]
-pub struct Gtfs {
+pub struct GtfsReader {
     config: Config,
     storage: Source,
 }
 
-impl Gtfs {
+impl GtfsReader {
     pub fn new() -> Self {
         Self::default()
     }
@@ -59,7 +59,7 @@ impl Gtfs {
     }
 
     pub fn from_zip_cache<P: AsRef<Path>>(mut self, path: P) -> Result<Self, self::Error> {
-        let directory = Gtfs::get_or_create_cache_dir(&path)?;
+        let directory = GtfsReader::get_or_create_cache_dir(&path)?;
         self.storage = Source::Directory(directory);
         Ok(self)
     }

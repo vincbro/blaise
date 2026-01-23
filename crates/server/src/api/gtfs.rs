@@ -83,10 +83,12 @@ pub async fn fetch_url(
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-        let data = Gtfs::new().from_zip(&state.gtfs_data_path).map_err(|err| {
-            error!("Failed create gtfs repository from zip: {err}");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        let data = GtfsReader::new()
+            .from_zip(&state.gtfs_data_path)
+            .map_err(|err| {
+                error!("Failed create gtfs repository from zip: {err}");
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
         let repo = Repository::new().load_gtfs(data).map_err(|err| {
             error!("Failed load gtfs file: {err}");
             StatusCode::INTERNAL_SERVER_ERROR

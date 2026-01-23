@@ -57,9 +57,9 @@ async fn main() {
     if app_state.gtfs_data_path.exists() {
         info!("Loading data...");
         let now = Instant::now();
-        let data = Gtfs::new()
-            .from_zip_cache(&app_state.gtfs_data_path)
-            .expect("Failed to create gtfs data set");
+        let reader = GtfsReader::new()
+            .from_zip(&app_state.gtfs_data_path)
+            .expect("Failed to build gtfs reader");
         let repo = Repository::new()
             .load_gtfs(data)
             .expect("Failed to load gtfs data in repository");

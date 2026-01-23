@@ -1,1 +1,2 @@
-mod gtfs;
+pub mod binary;
+pub mod gtfs;

@@ -1,5 +1,5 @@
 use blaise::{
-    gtfs::Gtfs,
+    gtfs::GtfsReader,
     prelude::Repository,
     raptor::{Allocator, Location},
     shared::{Coordinate, Time},
@@ -41,7 +41,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         }
     };
 
-    let gtfs = Gtfs::new()
+    let gtfs = GtfsReader::new()
         .from_zip_cache(gtfs_data_path)
         .expect("Failed to load GTFS zip");
     let repository = Repository::new()

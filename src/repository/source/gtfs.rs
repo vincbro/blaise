@@ -1,5 +1,5 @@
 use crate::{
-    gtfs::{self, Gtfs},
+    gtfs::{self, GtfsReader},
     raptor::get_departure_time,
     repository::{
         Area, Cell, RaptorRoute, Repository, Route, Stop, StopTime, StopTimeSlice, Transfer, Trip,
@@ -11,7 +11,7 @@ use std::{collections::HashMap, sync::Arc, time::Instant};
 use tracing::debug;
 
 impl Repository {
-    pub fn load_gtfs(mut self, mut gtfs: Gtfs) -> Result<Self, gtfs::Error> {
+    pub fn load_gtfs(mut self, mut gtfs: GtfsReader) -> Result<Self, gtfs::Error> {
         self.load_stops(&mut gtfs)?;
         self.load_areas(&mut gtfs)?;
         self.load_area_to_stops(&mut gtfs)?;
@@ -25,7 +25,7 @@ impl Repository {
         Ok(self)
     }
 
-    fn load_stops(&mut self, gtfs: &mut Gtfs) -> Result<(), gtfs::Error> {
+    fn load_stops(&mut self, gtfs: &mut GtfsReader) -> Result<(), gtfs::Error> {
         debug!("Loading stops...");
         let now = Instant::now();
         let mut stop_lookup: HashMap<Arc<str>, u32> = HashMap::new();
@@ -66,7 +66,7 @@ impl Repository {
         Ok(())
     }
 
-    fn load_areas(&mut self, gtfs: &mut Gtfs) -> Result<(), gtfs::Error> {
+    fn load_areas(&mut self, gtfs: &mut GtfsReader) -> Result<(), gtfs::Error> {
         debug!("Loading areas...");
         let now = Instant::now();
         let mut area_lookup: HashMap<Arc<str>, u32> = HashMap::new();
@@ -83,7 +83,7 @@ impl Repository {
         Ok(())
     }
 
-    fn load_area_to_stops(&mut self, gtfs: &mut Gtfs) -> Result<(), gtfs::Error> {
+    fn load_area_to_stops(&mut self, gtfs: &mut GtfsReader) -> Result<(), gtfs::Error> {
         debug!("Loading area to stops...");
         let now = Instant::now();
 
@@ -106,7 +106,7 @@ impl Repository {
         Ok(())
     }
 
-    fn load_routes(&mut self, gtfs: &mut Gtfs) -> Result<(), gtfs::Error> {
+    fn load_routes(&mut self, gtfs: &mut GtfsReader) -> Result<(), gtfs::Error> {
         debug!("Loading routes...");
         let now = Instant::now();
         let mut route_lookup: HashMap<Arc<str>, u32> = HashMap::new();
@@ -123,7 +123,7 @@ impl Repository {
         Ok(())
     }
 
-    fn load_trips(&mut self, gtfs: &mut Gtfs) -> Result<(), gtfs::Error> {
+    fn load_trips(&mut self, gtfs: &mut GtfsReader) -> Result<(), gtfs::Error> {
         debug!("Loading trips...");
         let now = Instant::now();
         let mut trip_lookup: HashMap<Arc<str>, u32> = HashMap::new();
@@ -155,7 +155,7 @@ impl Repository {
         Ok(())
     }
 
-    fn load_transfers(&mut self, gtfs: &mut Gtfs) -> Result<(), gtfs::Error> {
+    fn load_transfers(&mut self, gtfs: &mut GtfsReader) -> Result<(), gtfs::Error> {
         debug!("Loading transfers...");
         let now = Instant::now();
         let mut transfers: Vec<Transfer> = Vec::new();
@@ -205,7 +205,7 @@ impl Repository {
         Ok(())
     }
 
-    fn load_stop_times(&mut self, gtfs: &mut Gtfs) -> Result<(), gtfs::Error> {
+    fn load_stop_times(&mut self, gtfs: &mut GtfsReader) -> Result<(), gtfs::Error> {
         debug!("Loading stop times...");
         let now = Instant::now();
         let mut trip_to_stop_slice: Vec<StopTimeSlice> = vec![Default::default(); self.trips.len()];
