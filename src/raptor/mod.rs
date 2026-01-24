@@ -6,6 +6,8 @@ mod location;
 mod path;
 mod state;
 
+use std::mem;
+
 pub use allocator::*;
 pub(crate) use discovery::*;
 pub use itinerary::*;
@@ -21,7 +23,7 @@ use crate::{
     shared::time::Time,
 };
 use thiserror::Error;
-use tracing::{debug, warn};
+use tracing::warn;
 
 pub const MAX_ROUNDS: usize = 15;
 
@@ -156,14 +158,14 @@ impl<'a> Raptor<'a> {
         match self.time_constraint {
             TimeConstraint::Arrival(time) => {
                 to_stops.into_iter().for_each(|stop| {
-                    allocator.marked_stops[stop.index as usize] = true;
+                    allocator.marked_stops.set(stop.index as usize, true);
                     allocator.curr_labels[stop.index as usize] = Some(time);
                 });
                 allocator.target.stops = from_stops.into_iter().map(|stop| stop.index).collect();
             }
             TimeConstraint::Departure(time) => {
                 from_stops.into_iter().for_each(|stop| {
-                    allocator.marked_stops[stop.index as usize] = true;
+                    allocator.marked_stops.set(stop.index as usize, true);
                     allocator.curr_labels[stop.index as usize] = Some(time);
                 });
                 allocator.target.stops = to_stops.into_iter().map(|stop| stop.index).collect();
@@ -178,16 +180,17 @@ impl<'a> Raptor<'a> {
             }
             allocator.swap_labels();
 
-            let marked_stops = allocator.get_marked_stops();
-            debug!("Got {} marked stops", marked_stops.len());
-            if marked_stops.is_empty() {
+            // Pre process
+
+            if allocator.marked_stops.not_any() {
                 break;
             }
-            allocator.marked_stops.fill(false);
 
-            // Pre process
-            allocator.active.fill(None);
-            marked_stops.into_iter().for_each(|stop_idx| {
+            let mut marked_stops = mem::take(&mut allocator.marked_stops);
+
+            // allocator.active.fill(u32::MAX);
+            allocator.active_mask.fill(false);
+            marked_stops.iter_ones().for_each(|stop_idx| {
                 // We look at all the routes that serve a stop
                 // for each route that serve a route we store the earliest stop in that route
                 // that we serve
@@ -201,11 +204,20 @@ impl<'a> Raptor<'a> {
                 for route in allocator.routes_serving_stops.iter() {
                     let r_idx = route.route_idx as usize;
                     let p_idx = route.idx_in_route;
-                    if p_idx < allocator.active[r_idx].unwrap_or(u32::MAX) {
-                        allocator.active[r_idx] = Some(p_idx);
+                    let p_idx_to_beat = allocator
+                        .active_mask
+                        .get(r_idx)
+                        .map(|_| allocator.active[r_idx])
+                        .unwrap_or(u32::MAX);
+                    if p_idx < p_idx_to_beat {
+                        allocator.active[r_idx] = p_idx;
+                        allocator.active_mask.set(r_idx, true);
                     }
                 }
             });
+
+            marked_stops.fill(false);
+            allocator.marked_stops = mem::take(&mut marked_stops);
 
             match self.time_constraint {
                 TimeConstraint::Arrival(_) => {

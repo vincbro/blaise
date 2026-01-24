@@ -3,7 +3,7 @@ use crate::{
     repository::Repository,
     shared::Time,
 };
-use rayon::prelude::*;
+use bitvec::prelude::*;
 use std::mem;
 
 /// A memory pool for the RAPTOR algorithm's state.
@@ -15,7 +15,10 @@ pub struct Allocator {
     /// The best known arrival time at each stop across all rounds.
     pub(crate) tau_star: Vec<Option<Time>>,
     /// Tracks which stops were updated in the current round and need to be explored in the next.
-    pub(crate) marked_stops: Vec<bool>,
+    pub(crate) marked_stops: BitVec<usize, Lsb0>,
+    /// Tracks the earliest relevant stop index for each route in the current round.
+    pub(crate) active: Vec<u32>,
+    pub(crate) active_mask: BitVec<usize, Lsb0>,
     /// Labels from the previous round (k-1).
     pub(crate) prev_labels: Vec<Option<Time>>,
     /// Labels for the current round (k).
@@ -25,8 +28,6 @@ pub struct Allocator {
     pub(crate) parents: Vec<Option<Parent>>,
     /// Buffer used to batch updates before applying them to the state.
     pub(crate) updates: Vec<Update>,
-    /// Tracks the earliest relevant stop index for each route in the current round.
-    pub(crate) active: Vec<Option<u32>>,
     /// Total number of stops in the associated repository.
     pub(crate) stop_count: usize,
     /// Pre allocated buffer to skip heap allocations.
@@ -44,12 +45,13 @@ impl Allocator {
     pub fn new(repository: &Repository) -> Self {
         Self {
             tau_star: vec![None; repository.stops.len()],
-            marked_stops: vec![false; repository.stops.len()],
+            marked_stops: bitvec!(usize, Lsb0; 0; repository.stops.len()),
             prev_labels: vec![None; repository.stops.len()],
             curr_labels: vec![None; repository.stops.len()],
             parents: vec![None; repository.stops.len() * MAX_ROUNDS],
             updates: Vec::with_capacity(1024),
-            active: vec![None; repository.raptor_routes.len()],
+            active: vec![u32::MAX; repository.raptor_routes.len()],
+            active_mask: bitvec!(usize, Lsb0; 0; repository.raptor_routes.len()),
             stop_count: repository.stops.len(),
             routes_serving_stops: Vec::with_capacity(64),
             target: Target::new(),
@@ -64,7 +66,8 @@ impl Allocator {
         self.prev_labels.fill(None);
         self.curr_labels.fill(None);
         self.parents.fill(None);
-        self.active.fill(None);
+        self.active.fill(u32::MAX);
+        self.active_mask.fill(false);
         self.updates.clear();
         self.routes_serving_stops.clear();
         self.target.clear();
@@ -78,7 +81,7 @@ impl Allocator {
                 self.parents[flat_matrix(round, update.stop_idx as usize, self.stop_count)] =
                     Some(update.parent);
                 self.tau_star[update.stop_idx as usize] = Some(update.arrival_time);
-                self.marked_stops[update.stop_idx as usize] = true;
+                self.marked_stops.set(update.stop_idx as usize, true);
             }
         });
         self.updates.clear();
@@ -92,7 +95,7 @@ impl Allocator {
                 self.parents[flat_matrix(round, update.stop_idx as usize, self.stop_count)] =
                     Some(update.parent);
                 self.tau_star[update.stop_idx as usize] = Some(update.arrival_time);
-                self.marked_stops[update.stop_idx as usize] = true;
+                self.marked_stops.set(update.stop_idx as usize, true);
             }
         });
         self.updates.clear();
@@ -100,14 +103,6 @@ impl Allocator {
     pub(crate) fn get_parents(&self, round: usize) -> &[Option<Parent>] {
         let offset = self.stop_count * round;
         &self.parents[offset..offset + self.stop_count]
-    }
-
-    pub(crate) fn get_marked_stops(&self) -> Vec<usize> {
-        self.marked_stops
-            .par_iter()
-            .enumerate()
-            .filter_map(|(i, &m)| m.then_some(i))
-            .collect()
     }
 
     pub(crate) fn swap_labels(&mut self) {

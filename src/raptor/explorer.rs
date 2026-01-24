@@ -13,16 +13,13 @@ use rayon::prelude::*;
 /// using only transit routes.
 pub fn explore_routes(repository: &Repository, allocator: &mut Allocator) {
     let updates = allocator
-        .active
-        .par_iter()
-        .enumerate()
+        .active_mask
+        .iter_ones()
+        .par_bridge()
         .map_init(
             || LazyBuffer::new(32),
-            |buffer, (route_idx, p_idx)| {
-                let p_idx = match p_idx {
-                    Some(p_idx) => *p_idx,
-                    None => return vec![],
-                };
+            |buffer, route_idx| {
+                let p_idx = allocator.active[route_idx];
 
                 let route = &repository.raptor_routes[route_idx];
                 let mut active_trip: Option<&Trip> = None;
@@ -83,16 +80,13 @@ pub fn explore_routes(repository: &Repository, allocator: &mut Allocator) {
 /// Reverse exploration for Latest Departure Time (LDT) queries.
 pub fn explore_routes_reverse(repository: &Repository, allocator: &mut Allocator) {
     let updates = allocator
-        .active
-        .par_iter()
-        .enumerate()
+        .active_mask
+        .iter_ones()
+        .par_bridge()
         .map_init(
             || LazyBuffer::new(32),
-            |buffer, (route_idx, p_idx)| {
-                let p_idx = match p_idx {
-                    Some(p_idx) => *p_idx as usize,
-                    None => return vec![],
-                };
+            |buffer, route_idx| {
+                let p_idx = allocator.active[route_idx];
 
                 let route = &repository.raptor_routes[route_idx];
                 let mut active_trip: Option<&Trip> = None;
@@ -102,12 +96,12 @@ pub fn explore_routes_reverse(repository: &Repository, allocator: &mut Allocator
                 // To find the latest departure, we scan backwards from the destination.
                 // We want to "catch" a trip as late as possible to maximize our start time.
                 for i in (0..=p_idx).rev() {
-                    let stop_idx = route.stops[i];
+                    let stop_idx = route.stops[i as usize];
 
                     // PART A: If we have an active trip, can we leave this stop LATER
                     // than previously known and still catch it?
                     if let Some(trip) = active_trip {
-                        let dep_time = get_departure_time(repository, trip.index, i);
+                        let dep_time = get_departure_time(repository, trip.index, i as usize);
 
                         if dep_time > allocator.tau_star[stop_idx as usize].unwrap_or(0.into()) {
                             buffer.push(Update::new(
@@ -128,17 +122,18 @@ pub fn explore_routes_reverse(repository: &Repository, allocator: &mut Allocator
                     // our previous round's departure label, allowing us to shift our whole schedule later.
                     let prev_label = allocator.prev_labels[stop_idx as usize].unwrap_or(0.into());
                     let trip_arrival = active_trip
-                        .map(|t| get_arrival_time(repository, t.index, i))
+                        .map(|t| get_arrival_time(repository, t.index, i as usize))
                         .unwrap_or(0.into());
 
                     // If this stop has a departure label LATER than our current trip's arrival,
                     // find a trip that arrives even later (but still before the label)
                     if prev_label >= trip_arrival
-                        && let Some(later_trip) = find_latest_trip(repository, route, i, prev_label)
+                        && let Some(later_trip) =
+                            find_latest_trip(repository, route, i as usize, prev_label)
                     {
                         active_trip = Some(later_trip);
                         alighting_stop = stop_idx;
-                        alighting_p = i;
+                        alighting_p = i as usize;
                     }
                 }
                 buffer.swap()
@@ -154,9 +149,8 @@ pub fn explore_routes_reverse(repository: &Repository, allocator: &mut Allocator
 pub fn explore_transfers(repository: &Repository, allocator: &mut Allocator) {
     let updates = allocator
         .marked_stops
-        .par_iter()
-        .enumerate()
-        .filter_map(|(i, &m)| m.then_some(i))
+        .iter_ones()
+        .par_bridge()
         .map_init(
             || LazyBuffer::<Update>::new(32),
             |buffer, stop_idx| {
@@ -224,9 +218,8 @@ pub fn explore_transfers(repository: &Repository, allocator: &mut Allocator) {
 pub fn explore_transfers_reverse(repository: &Repository, allocator: &mut Allocator) {
     let updates = allocator
         .marked_stops
-        .par_iter()
-        .enumerate()
-        .filter_map(|(i, &m)| m.then_some(i))
+        .iter_ones()
+        .par_bridge()
         .map_init(
             || LazyBuffer::<Update>::new(32),
             |buffer, stop_idx| {
