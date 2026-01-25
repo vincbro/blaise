@@ -3,7 +3,7 @@ use crossbeam_queue::ArrayQueue;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::trace;
+use tracing::{trace, warn};
 
 pub struct AppState {
     pub gtfs_data_path: PathBuf,
@@ -39,7 +39,7 @@ impl AllocatorPool {
                 }
             })
             .unwrap_or_else(|| {
-                trace!("Created new (temp) allocator");
+                warn!("Created new (temp) allocator");
                 AllocatorGuard {
                     allocator: Some(Allocator::new(repository)),
                     owned: false,
