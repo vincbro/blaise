@@ -1,4 +1,7 @@
-use crate::{raptor::Point, shared::Time};
+use crate::{
+    raptor::Point,
+    shared::{Time, time},
+};
 
 #[derive(Debug, Clone)]
 pub(crate) struct Update {
@@ -87,7 +90,7 @@ impl Target {
     pub fn new() -> Self {
         Self {
             stops: vec![],
-            tau_star: u32::MAX.into(),
+            tau_star: time::MAX,
             best_stop: None,
             best_round: None,
         }
@@ -95,7 +98,7 @@ impl Target {
 
     pub fn clear(&mut self) {
         self.stops.clear();
-        self.tau_star = u32::MAX.into();
+        self.tau_star = time::MAX;
         self.best_stop = None;
         self.best_round = None;
     }

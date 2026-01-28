@@ -1,7 +1,7 @@
 use crate::dto::{AreaDto, stop::StopDto};
 use blaise::{
     raptor::{Itinerary, Leg, LegStop, LegType, Location},
-    repository::Repository,
+    repository::{Repository, Shape},
     shared::{geo::Coordinate, time::Time},
 };
 use serde::{Deserialize, Serialize};
@@ -45,6 +45,7 @@ pub struct LegStopDto {
     pub location: LocationDto,
     pub departure_time: Time,
     pub arrival_time: Time,
+    pub distance_traveled: Option<f32>,
 }
 
 impl LegStopDto {
@@ -53,6 +54,7 @@ impl LegStopDto {
             location: LocationDto::from(leg_stop.location, repository)?,
             departure_time: leg_stop.departure_time,
             arrival_time: leg_stop.arrival_time,
+            distance_traveled: leg_stop.distance_traveled.map(|value| value.as_meters()),
         })
     }
 }
@@ -68,6 +70,25 @@ pub struct LegDto {
     pub head_sign: Option<String>,
     pub long_name: Option<String>,
     pub short_name: Option<String>,
+    pub shapes: Option<Vec<ShapeDto>>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ShapeDto {
+    pub location: LocationDto,
+    pub sequence: u32,
+    pub distance_traveled: Option<f32>,
+}
+impl From<&Shape> for ShapeDto {
+    fn from(value: &Shape) -> Self {
+        Self {
+            location: LocationDto::Coordinate {
+                data: value.coordinate,
+            },
+            sequence: value.sequence,
+            distance_traveled: value.distance_traveled.map(|value| value.as_meters()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -145,6 +166,13 @@ impl LegDto {
             head_sign,
             long_name,
             short_name,
+            shapes: if let LegType::Transit(trip_idx) = leg.leg_type {
+                repository
+                    .shapes_by_trip_idx(trip_idx)
+                    .map(|value| value.iter().map(ShapeDto::from).collect())
+            } else {
+                None
+            },
         })
     }
 }

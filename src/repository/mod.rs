@@ -36,6 +36,7 @@ pub struct Repository {
     pub stop_times: Box<[StopTime]>,
     /// All known transfers.
     pub transfers: Box<[Transfer]>,
+    pub shapes: Box<[Shape]>,
 
     // --- Primary Key Lookups ---
     /// Maps a unique `Stop.id` string to its index within the `stops` slice.
@@ -46,6 +47,8 @@ pub struct Repository {
     area_lookup: HashMap<Arc<str>, u32>,
     /// Maps a unique `Route.id` string to its index within the `routes` slice.
     route_lookup: HashMap<Arc<str>, u32>,
+    /// Maps a unique `Shape.id` string to its slice start index within the `shapes` slice.
+    shapes_lookup: HashMap<Arc<str>, Slice>,
     /// Spatial index used to find stops within specific grid cells.
     stop_distance_lookup: HashMap<Cell, Box<[u32]>>,
 
@@ -65,7 +68,10 @@ pub struct Repository {
     /// Index mapping: `stop_index -> [trip_index, ...]`.
     pub(crate) stop_to_trips: Box<[Box<[u32]>]>,
     /// Defines the range within the `stop_times` slice that belongs to a specific trip.
-    pub(crate) trip_to_stop_slice: Box<[StopTimeSlice]>,
+    pub(crate) trip_to_stop_times_slice: Box<[Slice]>,
+
+    /// Defines the range within the `shapes` slice that belongs to a specific trip.
+    pub(crate) trip_to_shapes_slice: Box<[Option<Slice>]>,
 
     // --- RAPTOR Specialized Lookups ---
     /// Maps a standard route index to its corresponding `RaptorRoute` versions.
@@ -205,10 +211,21 @@ impl Repository {
     /// This uses a pre-computed pointer slice (start/count) into the global
     /// `stop_times` array for `O(1)` access.
     pub fn stop_times_by_trip_idx(&self, trip_idx: u32) -> &[StopTime] {
-        let slice = self.trip_to_stop_slice[trip_idx as usize];
+        let slice = self.trip_to_stop_times_slice[trip_idx as usize];
         let start = slice.start_idx as usize;
         let end = start + slice.count as usize;
         &self.stop_times[start..end]
+    }
+
+    /// Efficiently retrieves a slice of [`Shape`] entries for a specific trip.
+    ///
+    /// This uses a pre-computed pointer slice (start/count) into the global
+    /// `shapes` array for `O(1)` access.
+    pub fn shapes_by_trip_idx(&self, trip_idx: u32) -> Option<&[Shape]> {
+        let slice = self.trip_to_shapes_slice[trip_idx as usize]?;
+        let start = slice.start_idx as usize;
+        let end = start + slice.count as usize;
+        Some(&self.shapes[start..end])
     }
 
     /// Spatial query: Returns all stops within a certain distance of a coordinate.

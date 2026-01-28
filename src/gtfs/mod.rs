@@ -1,7 +1,5 @@
-mod config;
 pub mod models;
 
-pub use config::*;
 use models::*;
 use serde::de::DeserializeOwned;
 use std::{
@@ -25,6 +23,34 @@ pub enum Error {
     FileNotFound(String),
     #[error("Missing any source to pull data from")]
     MissingSource,
+}
+
+pub struct Config {
+    pub stops_path: String,
+    pub areas_path: String,
+    pub routes_path: String,
+    pub agency_path: String,
+    pub stop_areas_path: String,
+    pub transfers_path: String,
+    pub stop_times_path: String,
+    pub trips_path: String,
+    pub shapes_path: String,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            stops_path: "stops.txt".into(),
+            areas_path: "areas.txt".into(),
+            routes_path: "routes.txt".into(),
+            agency_path: "agency.txt".into(),
+            stop_areas_path: "stop_areas.txt".into(),
+            transfers_path: "transfers.txt".into(),
+            stop_times_path: "stop_times.txt".into(),
+            trips_path: "trips.txt".into(),
+            shapes_path: "shapes.txt".into(),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -163,6 +189,17 @@ impl GtfsReader {
             Source::None => Ok(()),
             Source::Zip(archive) => stream_from_zip(archive, &self.config.trips_path, f),
             Source::Directory(path) => stream_from_dir(path, &self.config.trips_path, f),
+        }
+    }
+
+    pub fn stream_shapes<F>(&mut self, f: F) -> Result<(), self::Error>
+    where
+        F: FnMut((usize, GtfsShape)),
+    {
+        match &mut self.storage {
+            Source::None => Ok(()),
+            Source::Zip(archive) => stream_from_zip(archive, &self.config.shapes_path, f),
+            Source::Directory(path) => stream_from_dir(path, &self.config.shapes_path, f),
         }
     }
 }

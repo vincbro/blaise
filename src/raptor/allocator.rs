@@ -1,7 +1,7 @@
 use crate::{
     raptor::{MAX_ROUNDS, Parent, ServingRoute, Target, Update},
     repository::Repository,
-    shared::Time,
+    shared::{Time, time},
 };
 use bitvec::prelude::*;
 use std::mem;
@@ -75,7 +75,7 @@ impl Allocator {
 
     pub(crate) fn run_updates(&mut self, round: usize) {
         self.updates.iter().for_each(|update| {
-            let best_time = self.tau_star[update.stop_idx as usize].unwrap_or(u32::MAX.into());
+            let best_time = self.tau_star[update.stop_idx as usize].unwrap_or(time::MAX);
             if update.arrival_time < best_time {
                 self.curr_labels[update.stop_idx as usize] = Some(update.arrival_time);
                 self.parents[flat_matrix(round, update.stop_idx as usize, self.stop_count)] =
@@ -89,7 +89,7 @@ impl Allocator {
 
     pub(crate) fn run_updates_reverse(&mut self, round: usize) {
         self.updates.iter().for_each(|update| {
-            let best_time = self.tau_star[update.stop_idx as usize].unwrap_or(0.into());
+            let best_time = self.tau_star[update.stop_idx as usize].unwrap_or(time::MIN);
             if update.arrival_time > best_time {
                 self.curr_labels[update.stop_idx as usize] = Some(update.arrival_time);
                 self.parents[flat_matrix(round, update.stop_idx as usize, self.stop_count)] =

@@ -20,7 +20,7 @@ use crate::{
         explore_routes, explore_routes_reverse, explore_transfers, explore_transfers_reverse,
     },
     repository::Repository,
-    shared::time::Time,
+    shared::time::{self, Time},
 };
 use thiserror::Error;
 use tracing::warn;
@@ -162,6 +162,7 @@ impl<'a> Raptor<'a> {
                     allocator.curr_labels[stop.index as usize] = Some(time);
                 });
                 allocator.target.stops = from_stops.into_iter().map(|stop| stop.index).collect();
+                allocator.target.tau_star = time::MIN;
             }
             TimeConstraint::Departure(time) => {
                 from_stops.into_iter().for_each(|stop| {
@@ -169,6 +170,7 @@ impl<'a> Raptor<'a> {
                     allocator.curr_labels[stop.index as usize] = Some(time);
                 });
                 allocator.target.stops = to_stops.into_iter().map(|stop| stop.index).collect();
+                allocator.target.tau_star = time::MAX;
             }
         }
 
@@ -245,7 +247,11 @@ impl<'a> Raptor<'a> {
                     tau_star.map(|tau_star| (stop_idx, tau_star))
                 })
                 .for_each(|(stop_idx, tau_star)| {
-                    if tau_star < allocator.target.tau_star {
+                    let improvement = match self.time_constraint {
+                        TimeConstraint::Arrival(_) => tau_star > allocator.target.tau_star,
+                        TimeConstraint::Departure(_) => tau_star < allocator.target.tau_star,
+                    };
+                    if improvement {
                         allocator.target.tau_star = tau_star;
                         allocator.target.best_stop = Some(*stop_idx);
                         allocator.target.best_round = Some(round);

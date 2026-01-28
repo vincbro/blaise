@@ -103,7 +103,7 @@ pub fn explore_routes_reverse(repository: &Repository, allocator: &mut Allocator
                     if let Some(trip) = active_trip {
                         let dep_time = get_departure_time(repository, trip.index, i as usize);
 
-                        if dep_time > allocator.tau_star[stop_idx as usize].unwrap_or(0.into()) {
+                        if dep_time > allocator.tau_star[stop_idx as usize].unwrap_or(time::MIN) {
                             buffer.push(Update::new(
                                 stop_idx,
                                 dep_time,
@@ -120,10 +120,10 @@ pub fn explore_routes_reverse(repository: &Repository, allocator: &mut Allocator
 
                     // PART B: Look for a trip that arrives at this stop LATER than
                     // our previous round's departure label, allowing us to shift our whole schedule later.
-                    let prev_label = allocator.prev_labels[stop_idx as usize].unwrap_or(0.into());
+                    let prev_label = allocator.prev_labels[stop_idx as usize].unwrap_or(time::MIN);
                     let trip_arrival = active_trip
                         .map(|t| get_arrival_time(repository, t.index, i as usize))
-                        .unwrap_or(0.into());
+                        .unwrap_or(time::MIN);
 
                     // If this stop has a departure label LATER than our current trip's arrival,
                     // find a trip that arrives even later (but still before the label)
@@ -159,12 +159,10 @@ pub fn explore_transfers(repository: &Repository, allocator: &mut Allocator) {
                     .iter()
                     .for_each(|transfer_idx| {
                         let transfer = &repository.transfers[*transfer_idx as usize];
-                        let departure_time =
-                            allocator.curr_labels[stop_idx].unwrap_or(u32::MAX.into());
+                        let departure_time = allocator.curr_labels[stop_idx].unwrap_or(time::MAX);
                         let arrival_time = departure_time + transfer_duration(repository, transfer);
                         if arrival_time
-                            < allocator.tau_star[transfer.to_stop_idx as usize]
-                                .unwrap_or(u32::MAX.into())
+                            < allocator.tau_star[transfer.to_stop_idx as usize].unwrap_or(time::MAX)
                             && arrival_time < allocator.target.tau_star
                         {
                             buffer.push(Update::new(
@@ -188,12 +186,10 @@ pub fn explore_transfers(repository: &Repository, allocator: &mut Allocator) {
                         let walking_distance = current_stop
                             .coordinate
                             .network_distance(&next_stop.coordinate);
-                        let departure_time =
-                            allocator.curr_labels[stop_idx].unwrap_or(u32::MAX.into());
+                        let departure_time = allocator.curr_labels[stop_idx].unwrap_or(time::MAX);
                         let arrival_time = departure_time + time_to_walk(walking_distance);
                         if arrival_time
-                            < allocator.tau_star[next_stop.index as usize]
-                                .unwrap_or(u32::MAX.into())
+                            < allocator.tau_star[next_stop.index as usize].unwrap_or(time::MAX)
                             && arrival_time < allocator.target.tau_star
                         {
                             buffer.push(Update::new(
@@ -228,10 +224,10 @@ pub fn explore_transfers_reverse(repository: &Repository, allocator: &mut Alloca
                     .iter()
                     .for_each(|transfer_idx| {
                         let transfer = &repository.transfers[*transfer_idx as usize];
-                        let arrival_time = allocator.curr_labels[stop_idx].unwrap_or(0.into());
+                        let arrival_time = allocator.curr_labels[stop_idx].unwrap_or(time::MIN);
                         let departure_time = arrival_time - transfer_duration(repository, transfer);
                         if departure_time
-                            > allocator.tau_star[transfer.to_stop_idx as usize].unwrap_or(0.into())
+                            > allocator.tau_star[transfer.to_stop_idx as usize].unwrap_or(time::MIN)
                         {
                             buffer.push(Update::new(
                                 transfer.to_stop_idx,
@@ -254,15 +250,15 @@ pub fn explore_transfers_reverse(repository: &Repository, allocator: &mut Alloca
                         let walking_distance = current_stop
                             .coordinate
                             .network_distance(&next_stop.coordinate);
-                        let arrival_time = allocator.curr_labels[stop_idx].unwrap_or(0.into());
+                        let arrival_time = allocator.curr_labels[stop_idx].unwrap_or(time::MIN);
                         let departure_time = arrival_time - time_to_walk(walking_distance);
                         if departure_time
-                            > allocator.tau_star[next_stop.index as usize].unwrap_or(0.into())
+                            > allocator.tau_star[next_stop.index as usize].unwrap_or(time::MIN)
                         {
                             buffer.push(Update::new(
                                 next_stop.index,
                                 departure_time,
-                                Parent::new_transfer(
+                                Parent::new_walk(
                                     next_stop.index.into(),
                                     (stop_idx as u32).into(),
                                     departure_time,

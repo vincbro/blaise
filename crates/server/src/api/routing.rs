@@ -42,6 +42,11 @@ pub async fn routing(
             .get("arrive_at")
             .map(|arrive_at| Time::from_hms(arrive_at).ok_or(StatusCode::BAD_REQUEST));
 
+        let include_shapes = params
+            .get("shapes")
+            .map(|shapes| bool::from_str(shapes).map_err(|_| StatusCode::BAD_REQUEST))
+            .unwrap_or(Ok(false))?;
+
         let time_constrait = if let Some(arrive_at) = arrive_at {
             TimeConstraint::Arrival(arrive_at?)
         } else if let Some(departure_at) = departure_at {
@@ -105,8 +110,13 @@ pub async fn routing(
                 );
             }
         });
-        let dto =
+        let mut dto =
             ItineraryDto::from(itinerary, repository).ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+        if !include_shapes {
+            dto.legs.iter_mut().for_each(|leg| {
+                leg.shapes = None;
+            });
+        }
         Ok(Json(dto).into_response())
     } else {
         warn!("Missing repository");

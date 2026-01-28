@@ -4,7 +4,7 @@ use crate::{
         location::{Location, Point},
     },
     repository::Repository,
-    shared::time::Time,
+    shared::{Distance, time::Time},
 };
 use serde::Serialize;
 
@@ -40,6 +40,7 @@ pub struct LegStop {
     pub location: Location,
     pub departure_time: Time,
     pub arrival_time: Time,
+    pub distance_traveled: Option<Distance>,
 }
 
 impl LegStop {
@@ -63,6 +64,7 @@ impl LegStop {
                                 location: Location::Stop(stop.id.clone()),
                                 departure_time: stop_time.departure_time,
                                 arrival_time: stop_time.arrival_time,
+                                distance_traveled: stop_time.distance_traveled,
                             });
                             if stop_time.stop_idx == to_idx && in_trip {
                                 break;

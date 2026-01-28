@@ -116,11 +116,11 @@ pub struct StopTime {
     /// Internal index of the associated [`Stop`].
     pub stop_idx: u32,
     /// The order of this stop within the trip (starts from 1).
-    pub sequence: u16,
+    pub sequence: u32,
     /// Pointer to the full range of stop times for the parent trip.
-    pub slice: StopTimeSlice,
+    pub slice: Slice,
     /// Zero-based position of this stop within its specific trip.
-    pub internal_idx: u32,
+    pub inner_idx: u32,
     /// Scheduled arrival time (stored as seconds since midnight).
     pub arrival_time: Time,
     /// Scheduled departure time (stored as seconds since midnight).
@@ -128,7 +128,7 @@ pub struct StopTime {
     /// Destination shown to passengers when at this stop.
     pub headsign: Option<Arc<str>>,
     /// Cumulative distance traveled along the trip's shape.
-    pub dist_traveled: Option<Distance>,
+    pub distance_traveled: Option<Distance>,
     /// Policy for passenger boarding (Regular, No Pickup, etc.).
     pub pickup_type: StopAccessType,
     /// Policy for passenger alighting.
@@ -137,12 +137,12 @@ pub struct StopTime {
     pub timepoint: Timepoint,
 }
 
-/// Metadata describing a contiguous range within the global `stop_times` array.
+/// Metadata describing a contiguous range within a global array.
 #[derive(Default, Debug, Clone, Copy)]
-pub struct StopTimeSlice {
-    /// The index where the trip's stop-times begin.
+pub struct Slice {
+    /// The index where the data begins.
     pub start_idx: u32,
-    /// The total number of stops in the trip.
+    /// The total number of elements in the array.
     pub count: u32,
 }
 
@@ -184,6 +184,17 @@ pub struct Route {
     /// Classification of the vehicle (0: Tram, 1: Subway, 3: Bus, etc.).
     pub route_type: i32,
     pub route_desc: Option<Arc<str>>,
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct Shape {
+    pub index: u32,
+    pub id: Arc<str>,
+    pub coordinate: Coordinate,
+    pub sequence: u32,
+    pub inner_idx: u32,
+    pub distance_traveled: Option<Distance>,
+    pub slice: Slice,
 }
 
 /// An optimized route structure strictly for the RAPTOR algorithm.
