@@ -14,7 +14,7 @@ use std::{
     str::{self, FromStr},
     sync::Arc,
 };
-use tracing::{debug, warn};
+use tracing::{debug, trace, warn};
 
 pub async fn routing(
     Query(params): Query<HashMap<String, String>>,
@@ -42,6 +42,11 @@ pub async fn routing(
             .get("arrive_at")
             .map(|arrive_at| Time::from_hms(arrive_at).ok_or(StatusCode::BAD_REQUEST));
 
+        let allow_walks = params
+            .get("allow_walk")
+            .map(|shapes| bool::from_str(shapes).map_err(|_| StatusCode::BAD_REQUEST))
+            .unwrap_or(Ok(true))?;
+
         let include_shapes = params
             .get("shapes")
             .map(|shapes| bool::from_str(shapes).map_err(|_| StatusCode::BAD_REQUEST))
@@ -57,7 +62,13 @@ pub async fn routing(
 
         let mut gaurd = pool.get_safe(repository);
         let allocator = gaurd.allocator.as_mut().expect("This should never fail");
-        let raptor = Raptor::new(repository, from, to).with_time_constraint(time_constrait);
+        debug!(
+            "Looking for a route from {:?} to {:?} | time constraint: {:?} | allowing walks: {} | sending shapes: {}",
+            from, to, time_constrait, allow_walks, include_shapes
+        );
+        let raptor = Raptor::new(repository, from, to)
+            .with_time_constraint(time_constrait)
+            .allow_walks(allow_walks);
         let itinerary = raptor
             .solve_with_allocator(allocator)
             .expect("Failed to unwrap allocator");

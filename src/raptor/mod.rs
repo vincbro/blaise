@@ -23,7 +23,7 @@ use crate::{
     shared::time::{self, Time},
 };
 use thiserror::Error;
-use tracing::warn;
+use tracing::{trace, warn};
 
 pub const MAX_ROUNDS: usize = 15;
 
@@ -39,6 +39,7 @@ pub enum Error {
     NoRouteFound,
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum TimeConstraint {
     Arrival(Time),
     Departure(Time),
@@ -68,6 +69,7 @@ pub struct Raptor<'a> {
     from: Location,
     to: Location,
     time_constraint: TimeConstraint,
+    allow_walks: bool,
     // walk_distance: Distance,
 }
 
@@ -88,6 +90,7 @@ impl<'a> Raptor<'a> {
             from,
             to,
             time_constraint: TimeConstraint::Departure(Time::now()),
+            allow_walks: true,
         }
     }
 
@@ -113,6 +116,12 @@ impl<'a> Raptor<'a> {
 
     pub fn with_time_constraint(mut self, constrait: TimeConstraint) -> Self {
         self.time_constraint = constrait;
+        self
+    }
+
+    /// If the raptor algorithm is allowed to walk to stops, this can/will improve travel time in most cases.
+    pub fn allow_walks(mut self, value: bool) -> Self {
+        self.allow_walks = value;
         self
     }
 
@@ -163,6 +172,7 @@ impl<'a> Raptor<'a> {
                 });
                 allocator.target.stops = from_stops.into_iter().map(|stop| stop.index).collect();
                 allocator.target.tau_star = time::MIN;
+                allocator.active.fill(u32::MIN);
             }
             TimeConstraint::Departure(time) => {
                 from_stops.into_iter().for_each(|stop| {
@@ -171,9 +181,11 @@ impl<'a> Raptor<'a> {
                 });
                 allocator.target.stops = to_stops.into_iter().map(|stop| stop.index).collect();
                 allocator.target.tau_star = time::MAX;
+                allocator.active.fill(u32::MAX);
             }
         }
 
+        allocator.round = 0;
         loop {
             if allocator.round >= MAX_ROUNDS {
                 warn!("Hit round limit!");
@@ -188,6 +200,11 @@ impl<'a> Raptor<'a> {
             }
 
             let mut marked_stops = mem::take(&mut allocator.marked_stops);
+            trace!(
+                "Found {} in round {}",
+                marked_stops.iter_ones().count(),
+                allocator.round
+            );
 
             // allocator.active.fill(u32::MAX);
             allocator.active_mask.fill(false);
@@ -205,14 +222,33 @@ impl<'a> Raptor<'a> {
                 for route in allocator.routes_serving_stops.iter() {
                     let r_idx = route.route_idx as usize;
                     let p_idx = route.idx_in_route;
-                    let p_idx_to_beat = allocator
-                        .active_mask
-                        .get(r_idx)
-                        .map(|_| allocator.active[r_idx])
-                        .unwrap_or(u32::MAX);
-                    if p_idx < p_idx_to_beat {
-                        allocator.active[r_idx] = p_idx;
-                        allocator.active_mask.set(r_idx, true);
+                    match self.time_constraint {
+                        TimeConstraint::Departure(_) => {
+                            // Forward: Default active to u32::MAX, Keep MIN
+                            let p_idx_to_beat = allocator
+                                .active_mask
+                                .get(r_idx)
+                                .map(|_| allocator.active[r_idx])
+                                .unwrap_or(u32::MAX);
+
+                            if p_idx < p_idx_to_beat {
+                                allocator.active[r_idx] = p_idx;
+                                allocator.active_mask.set(r_idx, true);
+                            }
+                        }
+                        TimeConstraint::Arrival(_) => {
+                            // Reverse: Default active to 0, Keep MAX
+                            let p_idx_to_beat = allocator
+                                .active_mask
+                                .get(r_idx)
+                                .map(|_| allocator.active[r_idx])
+                                .unwrap_or(0);
+
+                            if p_idx > p_idx_to_beat {
+                                allocator.active[r_idx] = p_idx;
+                                allocator.active_mask.set(r_idx, true);
+                            }
+                        }
                     }
                 }
             });
@@ -225,14 +261,14 @@ impl<'a> Raptor<'a> {
                     explore_routes_reverse(self.repository, allocator);
                     allocator.run_updates_reverse();
 
-                    explore_transfers_reverse(self.repository, allocator);
+                    explore_transfers_reverse(self.allow_walks, self.repository, allocator);
                     allocator.run_updates_reverse();
                 }
                 TimeConstraint::Departure(_) => {
                     explore_routes(self.repository, allocator);
                     allocator.run_updates();
 
-                    explore_transfers(self.repository, allocator);
+                    explore_transfers(self.allow_walks, self.repository, allocator);
                     allocator.run_updates();
                 }
             }

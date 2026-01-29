@@ -189,7 +189,6 @@ pub struct Route {
 #[derive(Debug, Default, Clone)]
 pub struct Shape {
     pub index: u32,
-    pub id: Arc<str>,
     pub coordinate: Coordinate,
     pub sequence: u32,
     pub inner_idx: u32,

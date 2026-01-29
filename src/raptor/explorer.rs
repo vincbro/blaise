@@ -146,7 +146,7 @@ pub fn explore_routes_reverse(repository: &Repository, allocator: &mut Allocator
 /// Handles footpaths and transfers between stops.
 /// In RAPTOR, transfers are processed after route exploration to ensure that
 /// round k transit results can be used as the starting point for round k+1.
-pub fn explore_transfers(repository: &Repository, allocator: &mut Allocator) {
+pub fn explore_transfers(allow_walk: bool, repository: &Repository, allocator: &mut Allocator) {
     let updates = allocator
         .marked_stops
         .iter_ones()
@@ -178,32 +178,35 @@ pub fn explore_transfers(repository: &Repository, allocator: &mut Allocator) {
                         }
                     });
 
-                let current_stop = &repository.stops[stop_idx];
-                repository.stop_to_walk_stop[stop_idx]
-                    .iter()
-                    .for_each(|next_stop_idx| {
-                        let next_stop = &repository.stops[*next_stop_idx as usize];
-                        let walking_distance = current_stop
-                            .coordinate
-                            .network_distance(&next_stop.coordinate);
-                        let departure_time = allocator.curr_labels[stop_idx].unwrap_or(time::MAX);
-                        let arrival_time = departure_time + time_to_walk(walking_distance);
-                        if arrival_time
-                            < allocator.tau_star[next_stop.index as usize].unwrap_or(time::MAX)
-                            && arrival_time < allocator.target.tau_star
-                        {
-                            buffer.push(Update::new(
-                                next_stop.index,
-                                arrival_time,
-                                Parent::new_walk(
-                                    (stop_idx as u32).into(),
-                                    next_stop.index.into(),
-                                    departure_time,
+                if allow_walk {
+                    let current_stop = &repository.stops[stop_idx];
+                    repository.stop_to_walk_stop[stop_idx]
+                        .iter()
+                        .for_each(|next_stop_idx| {
+                            let next_stop = &repository.stops[*next_stop_idx as usize];
+                            let walking_distance = current_stop
+                                .coordinate
+                                .network_distance(&next_stop.coordinate);
+                            let departure_time =
+                                allocator.curr_labels[stop_idx].unwrap_or(time::MAX);
+                            let arrival_time = departure_time + time_to_walk(walking_distance);
+                            if arrival_time
+                                < allocator.tau_star[next_stop.index as usize].unwrap_or(time::MAX)
+                                && arrival_time < allocator.target.tau_star
+                            {
+                                buffer.push(Update::new(
+                                    next_stop.index,
                                     arrival_time,
-                                ),
-                            ));
-                        }
-                    });
+                                    Parent::new_walk(
+                                        (stop_idx as u32).into(),
+                                        next_stop.index.into(),
+                                        departure_time,
+                                        arrival_time,
+                                    ),
+                                ));
+                            }
+                        });
+                }
                 buffer.swap()
             },
         )
@@ -211,7 +214,11 @@ pub fn explore_transfers(repository: &Repository, allocator: &mut Allocator) {
     allocator.updates.par_extend(updates);
 }
 
-pub fn explore_transfers_reverse(repository: &Repository, allocator: &mut Allocator) {
+pub fn explore_transfers_reverse(
+    allow_walk: bool,
+    repository: &Repository,
+    allocator: &mut Allocator,
+) {
     let updates = allocator
         .marked_stops
         .iter_ones()
@@ -242,31 +249,33 @@ pub fn explore_transfers_reverse(repository: &Repository, allocator: &mut Alloca
                         }
                     });
 
-                let current_stop = &repository.stops[stop_idx];
-                repository.stop_to_walk_stop[stop_idx]
-                    .iter()
-                    .for_each(|next_stop_idx| {
-                        let next_stop = &repository.stops[*next_stop_idx as usize];
-                        let walking_distance = current_stop
-                            .coordinate
-                            .network_distance(&next_stop.coordinate);
-                        let arrival_time = allocator.curr_labels[stop_idx].unwrap_or(time::MIN);
-                        let departure_time = arrival_time - time_to_walk(walking_distance);
-                        if departure_time
-                            > allocator.tau_star[next_stop.index as usize].unwrap_or(time::MIN)
-                        {
-                            buffer.push(Update::new(
-                                next_stop.index,
-                                departure_time,
-                                Parent::new_walk(
-                                    next_stop.index.into(),
-                                    (stop_idx as u32).into(),
+                if allow_walk {
+                    let current_stop = &repository.stops[stop_idx];
+                    repository.stop_to_walk_stop[stop_idx]
+                        .iter()
+                        .for_each(|next_stop_idx| {
+                            let next_stop = &repository.stops[*next_stop_idx as usize];
+                            let walking_distance = current_stop
+                                .coordinate
+                                .network_distance(&next_stop.coordinate);
+                            let arrival_time = allocator.curr_labels[stop_idx].unwrap_or(time::MIN);
+                            let departure_time = arrival_time - time_to_walk(walking_distance);
+                            if departure_time
+                                > allocator.tau_star[next_stop.index as usize].unwrap_or(time::MIN)
+                            {
+                                buffer.push(Update::new(
+                                    next_stop.index,
                                     departure_time,
-                                    arrival_time,
-                                ),
-                            ));
-                        }
-                    });
+                                    Parent::new_walk(
+                                        next_stop.index.into(),
+                                        (stop_idx as u32).into(),
+                                        departure_time,
+                                        arrival_time,
+                                    ),
+                                ));
+                            }
+                        });
+                }
                 buffer.swap()
             },
         )

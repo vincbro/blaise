@@ -7,11 +7,7 @@ use crate::{
     shared::{AVERAGE_STOP_DISTANCE, Coordinate, Distance, time::Duration},
 };
 use rayon::prelude::*;
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-    time::Instant,
-};
+use std::{collections::HashMap, sync::Arc, time::Instant};
 use tracing::debug;
 
 impl Repository {
@@ -19,13 +15,13 @@ impl Repository {
         self.load_stops(&mut gtfs)?;
         self.load_areas(&mut gtfs)?;
         self.load_area_to_stops(&mut gtfs)?;
-        self.load_shapes(&mut gtfs)?;
+        let shapes_lookup = self.load_shapes(&mut gtfs)?;
         self.load_routes(&mut gtfs)?;
-        self.load_trips(&mut gtfs)?;
+        let trip_to_shape_slice = self.load_trips(&mut gtfs, shapes_lookup)?;
         self.load_transfers(&mut gtfs)?;
         self.load_stop_times(&mut gtfs)?;
         self.generate_geo_hash();
-        self.generate_raptor_routes();
+        self.generate_raptor_routes(trip_to_shape_slice);
         self.generate_walks();
         Ok(self)
     }
@@ -111,23 +107,17 @@ impl Repository {
         Ok(())
     }
 
-    fn load_shapes(&mut self, gtfs: &mut GtfsReader) -> Result<(), gtfs::Error> {
+    fn load_shapes(
+        &mut self,
+        gtfs: &mut GtfsReader,
+    ) -> Result<HashMap<String, Slice>, gtfs::Error> {
         use crate::prelude::Shape;
 
         debug!("Loading shapes...");
         let now = Instant::now();
-        let mut owner_lookup: HashSet<Arc<str>> = HashSet::new();
-        let mut shapes: HashMap<Arc<str>, Vec<Shape>> = HashMap::new();
+        let mut shapes: HashMap<String, Vec<Shape>> = HashMap::new();
         gtfs.stream_shapes(|(_, shape)| {
-            let id = if let Some(id) = owner_lookup.get(shape.shape_id.as_str()) {
-                id.clone()
-            } else {
-                let id: Arc<str> = shape.shape_id.into();
-                owner_lookup.insert(id.clone());
-                id
-            };
             let value = Shape {
-                id: id.clone(),
                 index: u32::MAX,
                 coordinate: Coordinate::new(shape.shape_pt_lat, shape.shape_pt_lon),
                 sequence: shape.shape_pt_sequence,
@@ -138,21 +128,19 @@ impl Repository {
                 },
                 inner_idx: u32::MAX,
             };
-            shapes.entry(id).or_default().push(value);
+            shapes.entry(shape.shape_id).or_default().push(value);
         })?;
 
         let mut idx = 0;
-        let mut shapes_lookup: HashMap<Arc<str>, Slice> = HashMap::new();
+        let mut shapes_lookup: HashMap<String, Slice> = HashMap::new();
         let shapes: Vec<_> = shapes
-            .into_values()
-            .flat_map(|mut shapes| {
+            .into_iter()
+            .flat_map(|(id, mut shapes)| {
                 let slice = Slice {
                     start_idx: idx,
                     count: shapes.len() as u32,
                 };
-                if let Some(first) = shapes.first() {
-                    shapes_lookup.insert(first.id.clone(), slice);
-                }
+                shapes_lookup.entry(id).or_insert(slice);
 
                 shapes.par_sort_by_key(|value| value.sequence);
                 shapes.iter_mut().enumerate().for_each(|(i, shape)| {
@@ -166,9 +154,8 @@ impl Repository {
             .collect();
 
         self.shapes = shapes.into();
-        self.shapes_lookup = shapes_lookup;
         debug!("Loading shapes took {:?}", now.elapsed());
-        Ok(())
+        Ok(shapes_lookup)
     }
 
     fn load_routes(&mut self, gtfs: &mut GtfsReader) -> Result<(), gtfs::Error> {
@@ -188,7 +175,11 @@ impl Repository {
         Ok(())
     }
 
-    fn load_trips(&mut self, gtfs: &mut GtfsReader) -> Result<(), gtfs::Error> {
+    fn load_trips(
+        &mut self,
+        gtfs: &mut GtfsReader,
+        shapes_lookup: HashMap<String, Slice>,
+    ) -> Result<Vec<Option<Slice>>, gtfs::Error> {
         debug!("Loading trips...");
         let now = Instant::now();
         let mut trip_lookup: HashMap<Arc<str>, u32> = HashMap::new();
@@ -200,8 +191,8 @@ impl Repository {
         gtfs.stream_trips(|(i, trip)| {
             let shape_slice = trip
                 .shape_id
-                .and_then(|shape_id| self.shapes_lookup.get(shape_id.as_str()))
-                .cloned();
+                .and_then(|shape_id| shapes_lookup.get(&shape_id))
+                .copied();
             trip_to_shapes_slice.push(shape_slice);
             let route_index = self.route_lookup.get(trip.route_id.as_str()).unwrap();
             let value = Trip {
@@ -220,13 +211,11 @@ impl Repository {
         self.trips = trips.into();
         self.trip_lookup = trip_lookup;
         self.trip_to_route = trip_to_route.into();
-
-        self.trip_to_shapes_slice = trip_to_shapes_slice.into();
         let route_to_trips: Box<[Box<[u32]>]> =
             route_to_trips.into_iter().map(|val| val.into()).collect();
         self.route_to_trips = route_to_trips;
         debug!("Loading trips took {:?}", now.elapsed());
-        Ok(())
+        Ok(trip_to_shapes_slice)
     }
 
     fn load_transfers(&mut self, gtfs: &mut GtfsReader) -> Result<(), gtfs::Error> {
@@ -239,7 +228,6 @@ impl Repository {
                 .stop_lookup
                 .get(transfer.from_stop_id.as_str())
                 .unwrap();
-            let from_stop = &self.stops[from_stop_idx as usize];
 
             let to_stop_idx = *self.stop_lookup.get(transfer.to_stop_id.as_str()).unwrap();
 
@@ -257,7 +245,7 @@ impl Repository {
                 None
             };
 
-            stop_to_transfers[from_stop.index as usize].push(i as u32);
+            stop_to_transfers[from_stop_idx as usize].push(i as u32);
 
             let value = Transfer {
                 from_stop_idx,
@@ -270,11 +258,10 @@ impl Repository {
             transfers.push(value);
         })?;
         self.transfers = transfers.into();
-        let stop_to_transfers: Box<[Box<[u32]>]> = stop_to_transfers
+        self.stop_to_transfers = stop_to_transfers
             .into_iter()
             .map(|val| val.into())
             .collect();
-        self.stop_to_transfers = stop_to_transfers;
         debug!("Loading transfers took {:?}", now.elapsed());
         Ok(())
     }
@@ -378,7 +365,7 @@ impl Repository {
         debug!("Generating geo spatial hash took {:?}", now.elapsed());
     }
 
-    fn generate_raptor_routes(&mut self) {
+    fn generate_raptor_routes(&mut self, trip_to_shapes_slice: Vec<Option<Slice>>) {
         // Raptor mappings
         // Raptor requires each route's trips to have an identical set of stops.
         // Gtfs does not have this requirement, so we split each route
@@ -391,6 +378,7 @@ impl Repository {
         let mut raptor_routes: Vec<RaptorRoute> = Vec::new();
         let mut route_to_raptors: Vec<Vec<u32>> = vec![Vec::new(); self.routes.len()];
         let mut stop_to_raptors: Vec<Vec<u32>> = vec![Vec::new(); self.stops.len()];
+        let mut raptor_to_shapes_slice: Vec<Option<Slice>> = Vec::new();
         self.routes.iter().for_each(|route| {
             let trips = self.stop_times_by_route_idx(route.index);
             let mut raptor_trips: HashMap<Vec<u32>, Vec<u32>> = HashMap::new();
@@ -409,6 +397,15 @@ impl Repository {
 
                 value.par_sort_by_key(|trip_idx| get_departure_time(self, *trip_idx, 0));
 
+                // Add slice
+                if let Some(trip_idx) = value.first().copied() {
+                    let slice = trip_to_shapes_slice[trip_idx as usize];
+                    raptor_to_shapes_slice.push(slice);
+                } else {
+                    raptor_to_shapes_slice.push(None);
+                }
+
+                // Add raptor route
                 let raptor = RaptorRoute {
                     index: index as u32,
                     route_idx: route.index,
@@ -423,6 +420,7 @@ impl Repository {
         let route_to_raptors: Box<[Box<[u32]>]> =
             route_to_raptors.into_iter().map(|val| val.into()).collect();
         self.route_to_raptors = route_to_raptors;
+        self.raptor_to_shapes_slice = raptor_to_shapes_slice.into();
 
         self.stop_to_raptors = stop_to_raptors.into_iter().map(|val| val.into()).collect();
         debug!("Generating raptor routes took {:?}", now.elapsed());

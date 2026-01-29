@@ -48,8 +48,6 @@ pub struct Repository {
     area_lookup: HashMap<Arc<str>, u32>,
     /// Maps a unique `Route.id` string to its index within the `routes` slice.
     route_lookup: HashMap<Arc<str>, u32>,
-    /// Maps a unique `Shape.id` string to its slice start index within the `shapes` slice.
-    shapes_lookup: HashMap<Arc<str>, Slice>,
     /// Spatial index used to find stops within specific grid cells.
     stop_distance_lookup: HashMap<Cell, Box<[u32]>>,
 
@@ -64,15 +62,13 @@ pub struct Repository {
     pub(crate) stop_to_area: Box<[Option<u32>]>,
     /// Index mapping: `stop_index -> [stop_index, ...]`.
     pub(crate) station_to_stops: Box<[Box<[u32]>]>,
-    /// Index mapping: `stop_index -> [transfer_index, ...]`.
+    /// Index mapping: `from.stop_index -> [transfer_index, ...]`.
     pub(crate) stop_to_transfers: Box<[Box<[u32]>]>,
     /// Index mapping: `stop_index -> [trip_index, ...]`.
     pub(crate) stop_to_trips: Box<[Box<[u32]>]>,
     /// Defines the range within the `stop_times` slice that belongs to a specific trip.
     pub(crate) trip_to_stop_times_slice: Box<[Slice]>,
-
-    /// Defines the range within the `shapes` slice that belongs to a specific trip.
-    pub(crate) trip_to_shapes_slice: Box<[Option<Slice>]>,
+    /// Defines the range within the `shapes` slice that belongs to a specific raptor route.
 
     // --- RAPTOR Specialized Lookups ---
     /// Maps a standard route index to its corresponding `RaptorRoute` versions.
@@ -81,6 +77,8 @@ pub struct Repository {
     pub(crate) stop_to_raptors: Box<[Box<[u32]>]>,
     /// Maps a stop index to all walkable stops near it.
     pub(crate) stop_to_walk_stop: Box<[Box<[u32]>]>,
+    /// Maps a stop index to all walkable stops near it.
+    pub(crate) raptor_to_shapes_slice: Box<[Option<Slice>]>,
 }
 
 impl Repository {
@@ -223,7 +221,8 @@ impl Repository {
     /// This uses a pre-computed pointer slice (start/count) into the global
     /// `shapes` array for `O(1)` access.
     pub fn shapes_by_trip_idx(&self, trip_idx: u32) -> Option<&[Shape]> {
-        let slice = self.trip_to_shapes_slice[trip_idx as usize]?;
+        let trip = &self.trips[trip_idx as usize];
+        let slice = self.raptor_to_shapes_slice[trip.raptor_route_idx as usize]?;
         let start = slice.start_idx as usize;
         let end = start + slice.count as usize;
         Some(&self.shapes[start..end])
