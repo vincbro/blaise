@@ -174,9 +174,8 @@ impl<'a> Raptor<'a> {
             }
         }
 
-        let mut round: usize = 0;
         loop {
-            if round >= MAX_ROUNDS {
+            if allocator.round >= MAX_ROUNDS {
                 warn!("Hit round limit!");
                 break;
             }
@@ -224,17 +223,17 @@ impl<'a> Raptor<'a> {
             match self.time_constraint {
                 TimeConstraint::Arrival(_) => {
                     explore_routes_reverse(self.repository, allocator);
-                    allocator.run_updates_reverse(round);
+                    allocator.run_updates_reverse();
 
                     explore_transfers_reverse(self.repository, allocator);
-                    allocator.run_updates_reverse(round);
+                    allocator.run_updates_reverse();
                 }
                 TimeConstraint::Departure(_) => {
                     explore_routes(self.repository, allocator);
-                    allocator.run_updates(round);
+                    allocator.run_updates();
 
                     explore_transfers(self.repository, allocator);
-                    allocator.run_updates(round);
+                    allocator.run_updates();
                 }
             }
 
@@ -254,10 +253,10 @@ impl<'a> Raptor<'a> {
                     if improvement {
                         allocator.target.tau_star = tau_star;
                         allocator.target.best_stop = Some(*stop_idx);
-                        allocator.target.best_round = Some(round);
+                        allocator.target.best_round = Some(allocator.round);
                     }
                 });
-            round += 1;
+            allocator.next_round();
         }
 
         if let Some(target_stop) = allocator.target.best_stop

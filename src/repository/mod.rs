@@ -36,6 +36,7 @@ pub struct Repository {
     pub stop_times: Box<[StopTime]>,
     /// All known transfers.
     pub transfers: Box<[Transfer]>,
+    /// All the shapes.
     pub shapes: Box<[Shape]>,
 
     // --- Primary Key Lookups ---

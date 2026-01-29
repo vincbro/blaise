@@ -174,6 +174,8 @@ A `location` can be a coordinate or a area/stop `id`
 - `from`: **[REQUIRED]** Starting point (Area ID, Stop ID or lat,lng coordinate)..
 - `to`: **[REQUIRED]** Destination (Area ID, Stop ID or lat,lng coordinate)..
 - `departure_at`: Departure time in hms format `HH:MM:SS` `16:15:37` (Defaults to current system time).
+- `arrive_at`: Arrival time in hms format `HH:MM:SS` `16:15:37`.
+- `shapes`: Set to `true` if you want the shape for the leg (Defaults to `false`).
 
 **Output**
 ```json
@@ -212,8 +214,8 @@ A `location` can be a coordinate or a area/stop `id`
           "longitude": 18.037416
         }
       },
-      "departue_time": 23502,
-      "arrival_time": 23844,
+      "departue_time": 25428,
+      "arrival_time": 25788,
       "stops": [
         {
           "location": {
@@ -225,8 +227,9 @@ A `location` can be a coordinate or a area/stop `id`
               "longitude": 18.06124
             }
           },
-          "departure_time": 23502,
-          "arrival_time": 23460
+          "departure_time": 25428,
+          "arrival_time": 25386,
+          "distance_traveled": 11963.58
         },
         {
           "location": {
@@ -238,8 +241,9 @@ A `location` can be a coordinate or a area/stop `id`
               "longitude": 18.062963
             }
           },
-          "departure_time": 23586,
-          "arrival_time": 23556
+          "departure_time": 25518,
+          "arrival_time": 25482,
+          "distance_traveled": 12524.78
         },
         {
           "location": {
@@ -251,8 +255,9 @@ A `location` can be a coordinate or a area/stop `id`
               "longitude": 18.0579
             }
           },
-          "departure_time": 23682,
-          "arrival_time": 23652
+          "departure_time": 25620,
+          "arrival_time": 25584,
+          "distance_traveled": 13181.62
         },
         {
           "location": {
@@ -264,8 +269,9 @@ A `location` can be a coordinate or a area/stop `id`
               "longitude": 18.0486
             }
           },
-          "departure_time": 23778,
-          "arrival_time": 23748
+          "departure_time": 25722,
+          "arrival_time": 25686,
+          "distance_traveled": 13844.33
         },
         {
           "location": {
@@ -277,19 +283,44 @@ A `location` can be a coordinate or a area/stop `id`
               "longitude": 18.037416
             }
           },
-          "departure_time": 23874,
-          "arrival_time": 23844
+          "departure_time": 25824,
+          "arrival_time": 25788,
+          "distance_traveled": 14651.16
         }
       ],
       "mode": "Subway",
       "head_sign": null,
       "long_name": "Gröna linjen",
-      "short_name": "17"
+      "short_name": "18",
+      "shapes": null
     }
   ]
 }
 ```
 
+**Shapes**
+The shapes object (`shapes` query is set to `true`) includes a list of shapes that define a detailed geographical path the vehicle takes.
+
+Here is an example shape object:
+```json
+{
+  "location": {
+    "type": "coordinate",
+    "latitude": 59.235462,
+    "longitude": 18.101217
+  },
+  "sequence": 1,
+  "distance_traveled": 0.0
+},  
+```
+
+Important thing to note that the shapes that are returned explain the whole trip, not just the part in your journey. This is to allow you to show the path of each vehicle, however if you only wish to show the part of the trip that is in your journey you can use this logic:
+
+```
+  min_distance_traveled < shape.distance_traveled && shape.distance_traveled < max_distance_traveled
+```
+
+`min_distance_traveled` will be the distance traveled value of distance traveled in the first stop in a leg, and `max_distance_traveled` will be the distance traveled at the last stop in a leg.
 
 
 ### /gtfs/age

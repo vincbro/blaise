@@ -1,6 +1,5 @@
 use crate::{
     gtfs::{self, GtfsReader},
-    prelude::Shape,
     raptor::get_departure_time,
     repository::{
         Area, Cell, RaptorRoute, Repository, Route, Slice, Stop, StopTime, Transfer, Trip,
@@ -113,6 +112,8 @@ impl Repository {
     }
 
     fn load_shapes(&mut self, gtfs: &mut GtfsReader) -> Result<(), gtfs::Error> {
+        use crate::prelude::Shape;
+
         debug!("Loading shapes...");
         let now = Instant::now();
         let mut owner_lookup: HashSet<Arc<str>> = HashSet::new();
@@ -219,6 +220,7 @@ impl Repository {
         self.trips = trips.into();
         self.trip_lookup = trip_lookup;
         self.trip_to_route = trip_to_route.into();
+
         self.trip_to_shapes_slice = trip_to_shapes_slice.into();
         let route_to_trips: Box<[Box<[u32]>]> =
             route_to_trips.into_iter().map(|val| val.into()).collect();

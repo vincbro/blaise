@@ -34,6 +34,7 @@ pub struct Allocator {
     pub(crate) routes_serving_stops: Vec<ServingRoute>,
     /// Holds the target data
     pub(crate) target: Target,
+    pub(crate) round: usize,
 }
 
 impl Allocator {
@@ -55,6 +56,7 @@ impl Allocator {
             stop_count: repository.stops.len(),
             routes_serving_stops: Vec::with_capacity(64),
             target: Target::new(),
+            round: 0,
         }
     }
 
@@ -71,14 +73,15 @@ impl Allocator {
         self.updates.clear();
         self.routes_serving_stops.clear();
         self.target.clear();
+        self.round = 0;
     }
 
-    pub(crate) fn run_updates(&mut self, round: usize) {
+    pub(crate) fn run_updates(&mut self) {
         self.updates.iter().for_each(|update| {
             let best_time = self.tau_star[update.stop_idx as usize].unwrap_or(time::MAX);
             if update.arrival_time < best_time {
                 self.curr_labels[update.stop_idx as usize] = Some(update.arrival_time);
-                self.parents[flat_matrix(round, update.stop_idx as usize, self.stop_count)] =
+                self.parents[flat_matrix(self.round, update.stop_idx as usize, self.stop_count)] =
                     Some(update.parent);
                 self.tau_star[update.stop_idx as usize] = Some(update.arrival_time);
                 self.marked_stops.set(update.stop_idx as usize, true);
@@ -87,12 +90,12 @@ impl Allocator {
         self.updates.clear();
     }
 
-    pub(crate) fn run_updates_reverse(&mut self, round: usize) {
+    pub(crate) fn run_updates_reverse(&mut self) {
         self.updates.iter().for_each(|update| {
             let best_time = self.tau_star[update.stop_idx as usize].unwrap_or(time::MIN);
             if update.arrival_time > best_time {
                 self.curr_labels[update.stop_idx as usize] = Some(update.arrival_time);
-                self.parents[flat_matrix(round, update.stop_idx as usize, self.stop_count)] =
+                self.parents[flat_matrix(self.round, update.stop_idx as usize, self.stop_count)] =
                     Some(update.parent);
                 self.tau_star[update.stop_idx as usize] = Some(update.arrival_time);
                 self.marked_stops.set(update.stop_idx as usize, true);
@@ -108,6 +111,10 @@ impl Allocator {
     pub(crate) fn swap_labels(&mut self) {
         mem::swap(&mut self.curr_labels, &mut self.prev_labels);
         self.curr_labels.fill(None);
+    }
+
+    pub(crate) fn next_round(&mut self) {
+        self.round += 1;
     }
 }
 
