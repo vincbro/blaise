@@ -176,6 +176,7 @@ A `location` can be a coordinate or a area/stop `id`
 - `departure_at`: Departure time in hms format `HH:MM:SS` `16:15:37` (Defaults to current system time).
 - `arrive_at`: Arrival time in hms format `HH:MM:SS` `16:15:37`.
 - `shapes`: Set to `true` if you want the shape for the leg (Defaults to `false`).
+- `allow_walks`: Set to `false` if you want to ignore possible walkable routes (Defaults to `true`).
 
 **Output**
 ```json
