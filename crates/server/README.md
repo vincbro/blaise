@@ -256,9 +256,9 @@ A `location` can be a coordinate or a area/stop `id`
 
 **Shapes**
 
-The shapes object (`shapes` query is set to `true`) includes a list of shapes that define a detailed geographical path the vehicle takes.
+When you set `shapes=true` in your query, you'll receive a detailed geographical path showing the complete route the vehicle travels.
 
-Here is an example shape object:
+Each shape point contains:
 
 ```json
 {
@@ -269,16 +269,23 @@ Here is an example shape object:
   },
   "sequence": 1,
   "distance_traveled": 0.0
-},  
+}
 ```
 
-Important thing to note that the shapes that are returned explain the whole trip, not just the part in your journey. This is to allow you to show the path of each vehicle, however if you only wish to show the part of the trip that is in your journey you can use this logic:
+**Key Fields:**
+- `location`: GPS coordinates of the point
+- `sequence`: Order of points along the route (starts at 1)
+- `distance_traveled`: Cumulative distance from the trip start
+
+**Important:** Shape data covers the entire vehicle trip, not just your specific journey segment. To filter shapes for only your journey portion:
 
 ```
-  min_distance_traveled < shape.distance_traveled && shape.distance_traveled < max_distance_traveled
+min_distance_traveled < shape.distance_traveled && shape.distance_traveled < max_distance_traveled
 ```
 
-`min_distance_traveled` will be the `distance_traveled` value of distance traveled in the first stop in a leg, and `max_distance_traveled` will be the `distance_traveled` at the last stop in a leg.
+Where:
+- `min_distance_traveled`: Distance at your journey's first stop
+- `max_distance_traveled`: Distance at your journey's last stop
 
 
 ### /gtfs/age
