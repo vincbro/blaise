@@ -63,7 +63,7 @@ impl LegStopDto {
 pub struct LegDto {
     pub from: LocationDto,
     pub to: LocationDto,
-    pub departue_time: Time,
+    pub departure_time: Time,
     pub arrival_time: Time,
     pub stops: Vec<LegStopDto>,
     pub mode: Mode,
@@ -159,7 +159,7 @@ impl LegDto {
         Some(Self {
             from: LocationDto::from(leg.from, repository)?,
             to: LocationDto::from(leg.to, repository)?,
-            departue_time: leg.departue_time,
+            departure_time: leg.departue_time,
             arrival_time: leg.arrival_time,
             stops: stops?,
             mode: Mode::from_leg(leg.leg_type, repository),
@@ -181,6 +181,8 @@ impl LegDto {
 pub struct ItineraryDto {
     pub from: LocationDto,
     pub to: LocationDto,
+    pub departure_time: Time,
+    pub arrival_time: Time,
     pub legs: Vec<LegDto>,
 }
 
@@ -191,10 +193,20 @@ impl ItineraryDto {
             .into_iter()
             .map(|leg| LegDto::from(leg, repository))
             .collect();
-        Some(Self {
-            from: LocationDto::from(itinerary.from, repository)?,
-            to: LocationDto::from(itinerary.to, repository)?,
-            legs: legs?,
-        })
+
+        if let Some(legs) = legs {
+            let departure_time = legs.first().map(|leg| leg.departure_time)?;
+            let arrival_time = legs.last().map(|leg| leg.arrival_time)?;
+
+            Some(Self {
+                from: LocationDto::from(itinerary.from, repository)?,
+                to: LocationDto::from(itinerary.to, repository)?,
+                legs,
+                departure_time,
+                arrival_time,
+            })
+        } else {
+            None
+        }
     }
 }

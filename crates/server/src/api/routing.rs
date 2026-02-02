@@ -14,7 +14,7 @@ use std::{
     str::{self, FromStr},
     sync::Arc,
 };
-use tracing::{debug, trace, warn};
+use tracing::{debug, warn};
 
 pub async fn routing(
     Query(params): Query<HashMap<String, String>>,
