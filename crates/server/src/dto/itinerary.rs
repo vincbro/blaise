@@ -1,4 +1,3 @@
-use crate::dto::{AreaDto, stop::StopDto};
 use blaise::{
     raptor::{Itinerary, Leg, LegStop, LegType, Location},
     repository::{Repository, Shape},
@@ -7,35 +6,47 @@ use blaise::{
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum LocationDto {
-    #[serde(rename = "area")]
-    Area {
-        #[serde(flatten)]
-        data: AreaDto,
-    },
-    #[serde(rename = "stop")]
-    Stop {
-        #[serde(flatten)]
-        data: StopDto,
-    },
-    #[serde(rename = "coordinate")]
-    Coordinate {
-        #[serde(flatten)]
-        data: Coordinate,
-    },
+pub struct LocationDto {
+    pub kind: String,
+    pub id: String,
+    pub name: String,
+    pub coordinate: Coordinate,
+}
+
+impl From<Coordinate> for LocationDto {
+    fn from(value: Coordinate) -> Self {
+        LocationDto {
+            kind: "coordinate".into(),
+            id: value.to_string(),
+            name: value.to_string(),
+            coordinate: value,
+        }
+    }
 }
 
 impl LocationDto {
     pub fn from(location: Location, repository: &Repository) -> Option<Self> {
         match location {
-            Location::Area(id) => repository.area_by_id(&id).map(|val| LocationDto::Area {
-                data: AreaDto::from(val, repository),
+            Location::Area(id) => repository.area_by_id(&id).map(|val| {
+                let coordinate: Coordinate = repository
+                    .stops_by_area_idx(val.index)
+                    .into_iter()
+                    .map(|stop| stop.coordinate)
+                    .sum();
+                LocationDto {
+                    kind: "area".into(),
+                    id: val.id.to_string(),
+                    name: val.name.to_string(),
+                    coordinate,
+                }
             }),
-            Location::Stop(id) => repository.stop_by_id(&id).map(|val| LocationDto::Stop {
-                data: StopDto::from(val),
+            Location::Stop(id) => repository.stop_by_id(&id).map(|val| LocationDto {
+                kind: "stop".into(),
+                id: val.id.to_string(),
+                name: val.name.to_string(),
+                coordinate: val.coordinate,
             }),
-            Location::Coordinate(coordinate) => Some(LocationDto::Coordinate { data: coordinate }),
+            Location::Coordinate(coordinate) => Some(coordinate.into()),
         }
     }
 }
@@ -82,9 +93,7 @@ pub struct ShapeDto {
 impl From<&Shape> for ShapeDto {
     fn from(value: &Shape) -> Self {
         Self {
-            location: LocationDto::Coordinate {
-                data: value.coordinate,
-            },
+            location: value.coordinate.into(),
             sequence: value.sequence,
             distance_traveled: value.distance_traveled.map(|value| value.as_meters()),
         }
