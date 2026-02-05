@@ -1,28 +1,27 @@
-use crate::{raptor::location::Point, shared::Time};
+use crate::{
+    raptor::Point,
+    shared::{Time, time},
+};
 
-#[derive(Debug, Clone, Copy)]
-pub enum ParentType {
-    Transit(u32),
-    Transfer,
-    Walk,
+#[derive(Debug, Clone)]
+pub(crate) struct Update {
+    pub stop_idx: u32,
+    pub arrival_time: Time,
+    pub parent: Parent,
 }
 
-impl ParentType {
-    pub fn is_transit(&self) -> bool {
-        matches!(self, ParentType::Transit(_))
-    }
-
-    pub fn is_transfer(&self) -> bool {
-        matches!(self, ParentType::Transfer)
-    }
-
-    pub fn is_walk(&self) -> bool {
-        matches!(self, ParentType::Walk)
+impl Update {
+    pub fn new(stop_idx: u32, arrival_time: Time, parent: Parent) -> Self {
+        Self {
+            stop_idx,
+            arrival_time,
+            parent,
+        }
     }
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct Parent {
+pub(crate) struct Parent {
     pub from: Point,
     pub to: Point,
     pub parent_type: ParentType,
@@ -66,19 +65,41 @@ impl Parent {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct Update {
-    pub stop_idx: u32,
-    pub arrival_time: Time,
-    pub parent: Parent,
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum ParentType {
+    Transit(u32),
+    Transfer,
+    Walk,
 }
 
-impl Update {
-    pub fn new(stop_idx: u32, arrival_time: Time, parent: Parent) -> Self {
+impl ParentType {
+    pub fn is_transit(&self) -> bool {
+        matches!(self, ParentType::Transit(_))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct Target {
+    pub stops: Vec<u32>,
+    pub tau_star: Time,
+    pub best_stop: Option<u32>,
+    pub best_round: Option<usize>,
+}
+
+impl Target {
+    pub fn new() -> Self {
         Self {
-            stop_idx,
-            arrival_time,
-            parent,
+            stops: vec![],
+            tau_star: time::MAX,
+            best_stop: None,
+            best_round: None,
         }
+    }
+
+    pub fn clear(&mut self) {
+        self.stops.clear();
+        self.tau_star = time::MAX;
+        self.best_stop = None;
+        self.best_round = None;
     }
 }

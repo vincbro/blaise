@@ -9,7 +9,7 @@ use std::{
 };
 use thiserror::Error;
 
-pub const AVERAGE_STOP_DISTANCE: Distance = Distance::from_meters(1000.0);
+pub const AVERAGE_STOP_DISTANCE: Distance = Distance::from_meters(500.0);
 pub(crate) const LONGITUDE_DISTANCE: Distance = Distance::from_meters(111_320.0);
 pub(crate) const LATITUDE_DISTANCE: Distance = Distance::from_meters(110_540.0);
 
@@ -163,6 +163,13 @@ impl FromStr for Coordinate {
 }
 
 impl Coordinate {
+    pub fn new(latitude: f32, longitude: f32) -> Self {
+        Self {
+            latitude,
+            longitude,
+        }
+    }
+
     pub fn euclidean_distance(&self, coord: &Self) -> Distance {
         const R: f32 = 6371.0;
         let dist_lat = f32::to_radians(coord.latitude - self.latitude);

@@ -7,6 +7,7 @@ services:
     environment:
       - GTFS_DATA_PATH=/app/data/GTFS.zip
       - ALLOCATOR_COUNT=32
+      - LOG_LEVEL=info
     volumes:
       - ./gtfs_data:/app/data
     restart: unless-stopped

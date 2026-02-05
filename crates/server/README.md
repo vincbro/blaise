@@ -31,6 +31,7 @@ services:
     environment:
       - GTFS_DATA_PATH=/app/data/GTFS.zip
       - ALLOCATOR_COUNT=32
+      - LOG_LEVEL=info
     volumes:
       - ./gtfs_data:/app/data
     restart: unless-stopped
@@ -57,23 +58,53 @@ cargo build -r -p server
 
 ## Enviroment variables
 ### GTFS_DATA_PATH
-This is were *blaise* will look for and store the GTFS data.
+This is where *blaise* will look for and store the GTFS data.
 
 ### ALLOCATOR_COUNT
 To improve performance *blaise* will pre allocate most of the memory needed for the raptor algorithm to run.
 
 
-**BE AWARE**, setting this number to high will use large amounts of memory. Start low and see how far you can get.
+**BE AWARE**, setting this number too high will use large amounts of memory. Start low and see how far you can get.
+
+### LOG_LEVEL
+Sets the maximum log level that will be displayed.
+Can be: `error` `warn` `info` `debug` `trace`
 
 
 ## Endpoints
 
-### /search
+### /search/area
 Perform a fuzzy search for transit areas by name.
 
-**Example Request** `GET` `/search?q=S:t Eriksplan`
-- `q`: **[REQUIRED]** The search query (e.g., "S:t Eriksplan")..
-- `count`: Max results to return (Defaults to 5)..
+**Example Request** `GET` `/search/area?q=S:t Eriksplan&count=5`
+
+**Parameters:**
+- `q`: **[REQUIRED]** The search query (e.g., "S:t Eriksplan")
+- `count`: Max results to return (Defaults to 5)
+
+**Output**
+```json
+[
+  {
+    "id": "740021665",
+    "name": "S:t Eriksplan T-bana",
+    "coordinate": {
+      "latitude": 59.34002,
+      "longitude": 18.03799
+    }
+  },
+  ... shortened for readability
+]
+```
+
+### /search/stop
+Perform a fuzzy search for transit stops by name.
+
+**Example Request** `GET` `/search/stop?q=S:t Eriksplan&count=5`
+
+**Parameters:**
+- `q`: **[REQUIRED]** The search query (e.g., "S:t Eriksplan")
+- `count`: Max results to return (Defaults to 5)
 
 **Output**
 ```json
@@ -91,12 +122,39 @@ Perform a fuzzy search for transit areas by name.
 ```
 
 
-### /near
+### /near/area
 Find transit areas near a specific geographic coordinate.
 
-**Example Request** `GET` `/near?q=59.330569,18.058913`
-- `q`: **[REQUIRED]** Coordinate string in lat,lng format..
-- `distance`: Max search radius in meters (Defaults to 500)..
+**Example Request** `GET` `/near/area?q=59.330569,18.058913&distance=500`
+
+**Parameters:**
+- `q`: **[REQUIRED]** Coordinate string in lat,lng format
+- `distance`: Max search radius in meters (Defaults to 500)
+
+**Output**
+```json
+[
+  {
+    "id": "740021665",
+    "name": "S:t Eriksplan T-bana",
+    "coordinate": {
+      "latitude": 59.34002,
+      "longitude": 18.03799
+    }
+  },
+  ... shortened for readability
+]
+```
+
+
+### /near/stop
+Find transit stops near a specific geographic coordinate.
+
+**Example Request** `GET` `/near/stop?q=59.330569,18.058913&distance=500`
+
+**Parameters:**
+- `q`: **[REQUIRED]** Coordinate string in lat,lng format
+- `distance`: Max search radius in meters (Defaults to 500)
 
 **Output**
 ```json
@@ -118,123 +176,116 @@ Find transit areas near a specific geographic coordinate.
 ### /routing
 Calculate the optimal path between two points using the RAPTOR algorithm.
 
-A `location` can be a coordinate or a area `id`
+A `location` can be a coordinate or a area/stop `id`
 
-**Example Request** `GET` `/routing?from=59.330569, 18.059278&to=740021665`
-- `from`: **[REQUIRED]** Starting point (Area ID or lat,lng coordinate)..
-- `to`: **[REQUIRED]** Destination (Area ID or lat,lng coordinate)..
-- `departure_at`: Departure time in hms format `HH:MM:SS` `16:15:37` (Defaults to current system time).
+**Example Request** `GET` `/routing?from=59.330569,18.059278&to=740021665&departure_at=16:15:37&shapes=true&allow_walks=true`
+
+**Parameters:**
+- `from`: **[REQUIRED]** Starting point (Area ID, Stop ID or lat,lng coordinate)
+- `to`: **[REQUIRED]** Destination (Area ID, Stop ID or lat,lng coordinate)
+- `departure_at`: Departure time in hms format `HH:MM:SS` (Defaults to current system time)
+- `arrive_at`: Arrival time in hms format `HH:MM:SS`
+- `shapes`: Set to `true` if you want the shape for the leg (Defaults to `false`)
+- `allow_walk`: Set to `false` if you want to ignore possible walkable routes (Defaults to `true`)
 
 **Output**
 ```json
 {
   "from": {
-    "Coordinate": {
-      "latitude": 59.33057,
-      "longitude": 18.059278
-    }
+    "type": "coordinate",
+    "latitude": 59.33057,
+    "longitude": 18.059278
   },
   "to": {
-    "Area": {
-      "id": "740021665",
-      "name": "S:t Eriksplan T-bana",
-      "coordinate": {
-        "latitude": 59.34002,
-        "longitude": 18.03799
-      }
+    "type": "area",
+    "id": "740021665",
+    "name": "S:t Eriksplan T-bana",
+    "coordinate": {
+      "latitude": 59.339966,
+      "longitude": 18.03757
     }
   },
   "legs": [
     {
       "from": {
-        "Coordinate": {
-          "latitude": 59.33057,
-          "longitude": 18.059278
+        "type": "stop",
+        "id": "9022050009825003",
+        "name": "T-Centralen",
+        "coordinate": {
+          "latitude": 59.331524,
+          "longitude": 18.06124
         }
       },
       "to": {
-        "Stop": {
-          "id": "9022050009825003",
-          "name": "T-Centralen",
-          "coordinate": {
-            "latitude": 59.331524,
-            "longitude": 18.06124
-          }
+        "type": "stop",
+        "id": "9022050009828001",
+        "name": "S:t Eriksplan",
+        "coordinate": {
+          "latitude": 59.340294,
+          "longitude": 18.037416
         }
       },
-      "departue_time": 57600,
-      "arrival_time": 57734,
-      "stops": [],
-      "leg_type": "Walk"
-    },
-    {
-      "from": {
-        "Stop": {
-          "id": "9022050009825003",
-          "name": "T-Centralen",
-          "coordinate": {
-            "latitude": 59.331524,
-            "longitude": 18.06124
-          }
-        }
-      },
-      "to": {
-        "Stop": {
-          "id": "9022050009828001",
-          "name": "S:t Eriksplan",
-          "coordinate": {
-            "latitude": 59.340294,
-            "longitude": 18.037416
-          }
-        }
-      },
-      "departue_time": 57792,
-      "arrival_time": 58152,
+      "departue_time": 25428,
+      "arrival_time": 25788,
       "stops": [
         {
           "location": {
-            "Stop": {
-              "id": "9022050009825003",
-              "name": "T-Centralen",
-              "coordinate": {
-                "latitude": 59.331524,
-                "longitude": 18.06124
-              }
+            "type": "stop",
+            "id": "9022050009825003",
+            "name": "T-Centralen",
+            "coordinate": {
+              "latitude": 59.331524,
+              "longitude": 18.06124
             }
           },
-          "departure_time": 57792,
-          "arrival_time": 57750
+          "departure_time": 25428,
+          "arrival_time": 25386,
+          "distance_traveled": 11963.58
         },
         ... shortened for readability
       ],
-      "leg_type": "Transit"
-    },
-    {
-      "from": {
-        "Stop": {
-          "id": "9022050009828001",
-          "name": "S:t Eriksplan",
-          "coordinate": {
-            "latitude": 59.340294,
-            "longitude": 18.037416
-          }
-        }
-      },
-      "to": {
-        "Coordinate": {
-          "latitude": 59.34002,
-          "longitude": 18.03799
-        }
-      },
-      "departue_time": 58152,
-      "arrival_time": 58191,
-      "stops": [],
-      "leg_type": "Walk"
+      "mode": "Subway",
+      "head_sign": null,
+      "long_name": "Gröna linjen",
+      "short_name": "18",
+      "shapes": null
     }
   ]
 }
 ```
 
+**Shapes**
+
+When you set `shapes=true` in your query, you'll receive a detailed geographical path showing the complete route the vehicle travels.
+
+Each shape point contains:
+
+```json
+{
+  "location": {
+    "type": "coordinate",
+    "latitude": 59.235462,
+    "longitude": 18.101217
+  },
+  "sequence": 1,
+  "distance_traveled": 0.0
+}
+```
+
+**Key Fields:**
+- `location`: GPS coordinates of the point
+- `sequence`: Order of points along the route (starts at 1)
+- `distance_traveled`: Cumulative distance from the trip start
+
+**Important:** Shape data covers the entire vehicle trip, not just your specific journey segment. To filter shapes for only your journey portion:
+
+```
+min_distance_traveled < shape.distance_traveled && shape.distance_traveled < max_distance_traveled
+```
+
+Where:
+- `min_distance_traveled`: Distance at your journey's first stop
+- `max_distance_traveled`: Distance at your journey's last stop
 
 
 ### /gtfs/age
@@ -253,7 +304,10 @@ Returns the age of the current GTFS dataset in seconds since it was last modifie
 
 Installs or replaces the active GTFS dataset from a remote URL without needing to restart the server.
 
-**Example Request** `GET` `/gtfs/fetch-url?q={HTTPS_URL_TO_ZIP}`
+**Example Request** `GET` `/gtfs/fetch-url?q=https://example.com/gtfs-data.zip`
+
+**Parameters:**
+- `q`: **[REQUIRED]** HTTPS URL to a ZIP file containing GTFS data
 
 ## License
 

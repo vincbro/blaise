@@ -1,5 +1,5 @@
 use crate::{
-    repository::{Area, LocationType, Route, Stop, StopAccessType, StopTime, Timepoint},
+    repository::{Area, Route, Stop, StopAccessType, StopTime, Timepoint},
     shared::{
         geo::{Coordinate, Distance},
         time::Time,
@@ -21,26 +21,6 @@ pub struct GtfsStop {
 
 impl From<GtfsStop> for Stop {
     fn from(value: GtfsStop) -> Self {
-        let location_type = if let Some(lt) = value.location_type
-            && lt != 0
-        {
-            match lt {
-                1 => LocationType::Station,
-                2 => LocationType::Entrance(value.parent_station.unwrap_or("0".into()).into()),
-                3 => LocationType::Node,
-                4 => LocationType::Boarding,
-                _ => panic!("SHOULD NEVER BE MORE THEN 4"),
-            }
-        } else if let Some(ps) = value.parent_station {
-            let pc = value.platform_code.unwrap_or("/".into());
-            LocationType::Platform {
-                parent_station: ps.into(),
-                platform_code: pc.into(),
-            }
-        } else {
-            LocationType::Stop
-        };
-
         Self {
             index: u32::MAX,
             id: value.stop_id.into(),
@@ -50,7 +30,7 @@ impl From<GtfsStop> for Stop {
                 latitude: value.stop_lat,
                 longitude: value.stop_lon,
             },
-            location_type,
+            parent_index: None,
         }
     }
 }
@@ -90,8 +70,8 @@ impl From<GtfsRoute> for Route {
             index: u32::MAX,
             id: value.route_id.into(),
             agency_id: value.agency_id.into(),
-            route_short_name: value.route_short_name.map(|val| val.into()),
-            route_long_name: value.route_long_name.map(|val| val.into()),
+            short_name: value.route_short_name.map(|val| val.into()),
+            long_name: value.route_long_name.map(|val| val.into()),
             route_type: value.route_type,
             route_desc: value.route_desc.map(|val| val.into()),
         }
@@ -134,7 +114,7 @@ pub struct GtfsStopTime {
     pub arrival_time: String,
     pub departure_time: String,
     pub stop_id: String,
-    pub stop_sequence: u16,
+    pub stop_sequence: u32,
     pub stop_headsign: Option<String>,
     pub pickup_type: u8,
     pub drop_off_type: u8,
@@ -153,12 +133,12 @@ impl From<GtfsStopTime> for StopTime {
             // stop_id: Default::default(),
             stop_idx: u32::MAX,
             slice: Default::default(),
-            internal_idx: u32::MAX,
+            inner_idx: u32::MAX,
             sequence: value.stop_sequence,
             arrival_time: Time::from_hms(&value.arrival_time).unwrap(),
             departure_time: Time::from_hms(&value.departure_time).unwrap(),
             headsign: value.stop_headsign.map(|val| val.into()),
-            dist_traveled: value.shape_dist_traveled.map(Distance::from_meters),
+            distance_traveled: value.shape_dist_traveled.map(Distance::from_meters),
             pickup_type: StopAccessType::Regularly,
             drop_off_type: StopAccessType::Regularly,
             timepoint: Timepoint::Exact,
@@ -178,14 +158,12 @@ pub struct GtfsTrip {
     pub shape_id: Option<String>,
 }
 
-// impl From<GtfsTrip> for Trip {
-//     fn from(value: GtfsTrip) -> Self {
-//         Self {
-//             index: u32::MAX,
-//             id: value.trip_id.into(),
-//             route_id:
-//             headsign: value.trip_headsign.map(|val| val.into()),
-//             short_name: value.trip_short_name.map(|val| val.into()),
-//         }
-//     }
-// }
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct GtfsShape {
+    pub shape_id: String,
+    pub shape_pt_lat: f32,
+    pub shape_pt_lon: f32,
+    pub shape_pt_sequence: u32,
+    pub shape_dist_traveled: Option<f32>,
+}

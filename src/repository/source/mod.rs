@@ -1,1 +1,1 @@
-mod gtfs;
+pub mod gtfs;

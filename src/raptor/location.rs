@@ -1,6 +1,8 @@
+use crate::{
+    repository::{Area, Stop},
+    shared::geo::Coordinate,
+};
 use std::sync::Arc;
-
-use crate::{repository::Area, shared::geo::Coordinate};
 
 #[derive(Debug, Clone)]
 pub enum Location {
@@ -18,6 +20,18 @@ impl From<&Area> for Location {
 impl From<Area> for Location {
     fn from(value: Area) -> Self {
         Self::Area(value.id)
+    }
+}
+
+impl From<&Stop> for Location {
+    fn from(value: &Stop) -> Self {
+        Self::Stop(value.id.clone())
+    }
+}
+
+impl From<Stop> for Location {
+    fn from(value: Stop) -> Self {
+        Self::Stop(value.id)
     }
 }
 

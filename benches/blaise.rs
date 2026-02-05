@@ -1,5 +1,5 @@
 use blaise::{
-    gtfs::Gtfs,
+    gtfs::GtfsReader,
     prelude::Repository,
     raptor::{Allocator, Location},
     shared::{Coordinate, Time},
@@ -41,8 +41,8 @@ fn criterion_benchmark(c: &mut Criterion) {
         }
     };
 
-    let gtfs = Gtfs::new()
-        .from_zip(gtfs_data_path)
+    let gtfs = GtfsReader::new()
+        .from_zip_cache(gtfs_data_path)
         .expect("Failed to load GTFS zip");
     let repository = Repository::new()
         .load_gtfs(gtfs)
@@ -51,6 +51,8 @@ fn criterion_benchmark(c: &mut Criterion) {
     let mut allocator = Allocator::new(&repository);
 
     let mut group = c.benchmark_group("Routing");
+
+    group.warm_up_time(Duration::from_secs(10));
 
     group.measurement_time(Duration::from_secs(30));
 

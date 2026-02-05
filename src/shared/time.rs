@@ -5,6 +5,9 @@ use std::{
     ops::{Add, AddAssign, Sub, SubAssign},
 };
 
+pub const MIN: Time = Time(0);
+pub const MAX: Time = Time(u32::MAX);
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Time(u32);
 
@@ -15,10 +18,18 @@ impl From<u32> for Time {
 }
 
 impl Sub<Time> for Time {
-    type Output = Duration;
+    type Output = Self;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        Duration(self.0 - rhs.0)
+        Self(self.0 - rhs.0)
+    }
+}
+
+impl Sub<Duration> for Time {
+    type Output = Self;
+
+    fn sub(self, rhs: Duration) -> Self::Output {
+        Self(self.0 - rhs.0)
     }
 }
 

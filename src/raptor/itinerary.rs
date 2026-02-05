@@ -1,10 +1,10 @@
 use crate::{
     raptor::{
+        Parent, ParentType,
         location::{Location, Point},
-        state::{Parent, ParentType},
     },
     repository::Repository,
-    shared::time::Time,
+    shared::{Distance, time::Time},
 };
 use serde::Serialize;
 
@@ -40,10 +40,11 @@ pub struct LegStop {
     pub location: Location,
     pub departure_time: Time,
     pub arrival_time: Time,
+    pub distance_traveled: Option<Distance>,
 }
 
 impl LegStop {
-    pub fn generate_stops(parent: &Parent, repository: &Repository) -> Vec<Self> {
+    pub(crate) fn generate_stops(parent: &Parent, repository: &Repository) -> Vec<Self> {
         match parent.parent_type {
             ParentType::Transit(trip_idx) => {
                 let trip = &repository.trips[trip_idx as usize];
@@ -63,6 +64,7 @@ impl LegStop {
                                 location: Location::Stop(stop.id.clone()),
                                 departure_time: stop_time.departure_time,
                                 arrival_time: stop_time.arrival_time,
+                                distance_traveled: stop_time.distance_traveled,
                             });
                             if stop_time.stop_idx == to_idx && in_trip {
                                 break;
@@ -87,7 +89,12 @@ pub struct Itinerary {
 }
 
 impl Itinerary {
-    pub fn new(from: Location, to: Location, path: Vec<Parent>, repository: &Repository) -> Self {
+    pub(crate) fn new(
+        from: Location,
+        to: Location,
+        path: Vec<Parent>,
+        repository: &Repository,
+    ) -> Self {
         let legs = path
             .into_iter()
             .map(|parent| {
