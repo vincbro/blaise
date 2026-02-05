@@ -58,16 +58,16 @@ cargo build -r -p server
 
 ## Enviroment variables
 ### GTFS_DATA_PATH
-This is were *blaise* will look for and store the GTFS data.
+This is where *blaise* will look for and store the GTFS data.
 
 ### ALLOCATOR_COUNT
 To improve performance *blaise* will pre allocate most of the memory needed for the raptor algorithm to run.
 
 
-**BE AWARE**, setting this number to high will use large amounts of memory. Start low and see how far you can get.
+**BE AWARE**, setting this number too high will use large amounts of memory. Start low and see how far you can get.
 
 ### LOG_LEVEL
-Sets all the the maximum log level that will be displayed.
+Sets the maximum log level that will be displayed.
 Can be: `error` `warn` `info` `debug` `trace`
 
 
@@ -186,7 +186,7 @@ A `location` can be a coordinate or a area/stop `id`
 - `departure_at`: Departure time in hms format `HH:MM:SS` (Defaults to current system time)
 - `arrive_at`: Arrival time in hms format `HH:MM:SS`
 - `shapes`: Set to `true` if you want the shape for the leg (Defaults to `false`)
-- `allow_walks`: Set to `false` if you want to ignore possible walkable routes (Defaults to `true`)
+- `allow_walk`: Set to `false` if you want to ignore possible walkable routes (Defaults to `true`)
 
 **Output**
 ```json

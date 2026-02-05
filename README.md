@@ -54,7 +54,7 @@ cargo add blaise
 ```rust
 use blaise::gtfs::{GtfsReader};
 use blaise::repository::Repository;
-use blaise::router::{Raptor, Location};
+use blaise::raptor::{Raptor, Location};
 use blaise::shared::{time::Time, geo::Coordinate};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -65,7 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let to = Location::Coordinate(Coordinate { latitude: 59.3, longitude: 18.0 });
     let departure = Time::from_hms("16:00:00")?;
 
-    let raptor = Raptor::new(repo, from, to).departure_at(departure);
+    let raptor = Raptor::new(&repo, from, to).departure_at(departure);
     let itinerary = raptor.solve()?;
     println!("Found a path with {} legs!", itinerary.legs.len());
     Ok(())
