@@ -1,7 +1,7 @@
 use crate::{
     gtfs::{
-        self, GtfsArea, GtfsData, GtfsReader, GtfsRoute, GtfsShape, GtfsStop, GtfsStopArea,
-        GtfsStopTime, GtfsTransfer, GtfsTrip,
+        GtfsArea, GtfsData, GtfsRoute, GtfsShape, GtfsStop, GtfsStopArea, GtfsStopTime,
+        GtfsTransfer, GtfsTrip,
     },
     raptor::get_departure_time,
     repository::{

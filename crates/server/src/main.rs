@@ -55,15 +55,18 @@ async fn main() {
     };
 
     if app_state.gtfs_data_path.exists() {
-        info!("Loading data...");
-        let now = Instant::now();
+        info!("Reading GTFS data...");
+        let mut now = Instant::now();
         let data = GtfsReader::new()
             .from_zip_cache(&app_state.gtfs_data_path)
             .expect("Failed to build gtfs reader")
             .par_read()
             .expect("Failed to read gtfs data");
+        info!("Reading GTFS data took {:?}", now.elapsed());
+        info!("Loading GTFS data...");
+        now = Instant::now();
         let repo = Repository::new().load_gtfs(data);
-        info!("Loading data took {:?}", now.elapsed());
+        info!("Loading GTFS data took {:?}", now.elapsed());
         info!("Allocating {alloc_count} pools...");
         let now = Instant::now();
         let pool = AllocatorPool::new(alloc_count, &repo);
