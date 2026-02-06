@@ -84,15 +84,17 @@ pub async fn fetch_url(
         })?;
 
         let data = GtfsReader::new()
-            .from_zip(&state.gtfs_data_path)
+            .from_zip_cache(&state.gtfs_data_path)
             .map_err(|err| {
-                error!("Failed create gtfs repository from zip: {err}");
+                error!("Failed create gtfs reader from zip: {err}");
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?
+            .par_read()
+            .map_err(|err| {
+                error!("Failed read gtfs data from gtfs reader: {err}");
                 StatusCode::INTERNAL_SERVER_ERROR
             })?;
-        let repo = Repository::new().load_gtfs(data).map_err(|err| {
-            error!("Failed load gtfs file: {err}");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        let repo = Repository::new().load_gtfs(data);
         let pool = AllocatorPool::new(state.allocator_count, &repo);
         let _ = state.allocator_pool.write().await.replace(pool);
         let _ = state.repository.write().await.replace(repo);

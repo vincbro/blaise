@@ -1,6 +1,4 @@
-pub mod models;
-
-use models::*;
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde::de::DeserializeOwned;
 use std::{
     fs::{self, File},
@@ -10,6 +8,14 @@ use std::{
 use thiserror::Error;
 use tracing::info;
 use zip::{ZipArchive, read::ZipFile};
+
+mod config;
+mod data;
+mod models;
+
+pub use config::*;
+pub use data::*;
+pub use models::*;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -25,35 +31,7 @@ pub enum Error {
     MissingSource,
 }
 
-pub struct Config {
-    pub stops_path: String,
-    pub areas_path: String,
-    pub routes_path: String,
-    pub agency_path: String,
-    pub stop_areas_path: String,
-    pub transfers_path: String,
-    pub stop_times_path: String,
-    pub trips_path: String,
-    pub shapes_path: String,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            stops_path: "stops.txt".into(),
-            areas_path: "areas.txt".into(),
-            routes_path: "routes.txt".into(),
-            agency_path: "agency.txt".into(),
-            stop_areas_path: "stop_areas.txt".into(),
-            transfers_path: "transfers.txt".into(),
-            stop_times_path: "stop_times.txt".into(),
-            trips_path: "trips.txt".into(),
-            shapes_path: "shapes.txt".into(),
-        }
-    }
-}
-
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub enum Source {
     #[default]
     None,
@@ -61,7 +39,7 @@ pub enum Source {
     Directory(PathBuf),
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct GtfsReader {
     config: Config,
     storage: Source,
@@ -95,7 +73,7 @@ impl GtfsReader {
         self
     }
 
-    pub fn get_or_create_cache_dir<P: AsRef<Path>>(zip_path: P) -> Result<PathBuf, self::Error> {
+    fn get_or_create_cache_dir<P: AsRef<Path>>(zip_path: P) -> Result<PathBuf, self::Error> {
         let zip_path = zip_path.as_ref();
 
         let mut target_dir = PathBuf::from(zip_path);
@@ -113,6 +91,68 @@ impl GtfsReader {
         }
 
         Ok(target_dir)
+    }
+
+    /// Reads all the gtfs data into a `GtfsData` struct in parallel
+    pub fn par_read(&self) -> Result<GtfsData, self::Error> {
+        let config = &self.config;
+        let file_names = config.to_slice();
+
+        let dir_path = match &self.storage {
+            Source::Directory(p) => p,
+            Source::Zip(_) => {
+                return Err(self::Error::Io(std::io::Error::other(
+                    "Parallel read requires Source::Directory (use from_zip_cache)",
+                )));
+            }
+            Source::None => return Err(self::Error::MissingSource),
+        };
+
+        let data: Vec<GtfsTable> = file_names
+            .into_par_iter()
+            .map(|filename| {
+                let file_path = dir_path.join(filename);
+
+                if !file_path.exists() {
+                    return Ok(GtfsTable::Unkown);
+                }
+                let file = File::open(&file_path)?;
+                let reader = std::io::BufReader::with_capacity(128 * 1024, file);
+                let mut csv = csv::Reader::from_reader(reader);
+                let table = if filename == config.stops_path.as_str() {
+                    let data: Vec<GtfsStop> = csv.deserialize().collect::<Result<Vec<_>, _>>()?;
+                    GtfsTable::Stops(data)
+                } else if filename == config.areas_path.as_str() {
+                    let data: Vec<GtfsArea> = csv.deserialize().collect::<Result<Vec<_>, _>>()?;
+                    GtfsTable::Areas(data)
+                } else if filename == config.stop_areas_path.as_str() {
+                    let data: Vec<GtfsStopArea> =
+                        csv.deserialize().collect::<Result<Vec<_>, _>>()?;
+                    GtfsTable::StopAreas(data)
+                } else if filename == config.routes_path.as_str() {
+                    let data: Vec<GtfsRoute> = csv.deserialize().collect::<Result<Vec<_>, _>>()?;
+                    GtfsTable::Routes(data)
+                } else if filename == config.transfers_path.as_str() {
+                    let data: Vec<GtfsTransfer> =
+                        csv.deserialize().collect::<Result<Vec<_>, _>>()?;
+                    GtfsTable::Transfers(data)
+                } else if filename == config.stop_times_path.as_str() {
+                    let data: Vec<GtfsStopTime> =
+                        csv.deserialize().collect::<Result<Vec<_>, _>>()?;
+                    GtfsTable::StopTimes(data)
+                } else if filename == config.shapes_path.as_str() {
+                    let data: Vec<GtfsShape> = csv.deserialize().collect::<Result<Vec<_>, _>>()?;
+                    GtfsTable::Shapes(data)
+                } else if filename == config.trips_path.as_str() {
+                    let data: Vec<GtfsTrip> = csv.deserialize().collect::<Result<Vec<_>, _>>()?;
+                    GtfsTable::Trips(data)
+                } else {
+                    GtfsTable::Unkown
+                };
+                Ok(table)
+            })
+            .collect::<Result<_, self::Error>>()?;
+        Ok(GtfsData::from(data))
     }
 
     pub fn stream_stops<F>(&mut self, f: F) -> Result<(), self::Error>
