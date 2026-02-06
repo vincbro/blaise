@@ -1,6 +1,4 @@
-use memmap::Mmap;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
-use serde::de::DeserializeOwned;
 use std::{
     fs::{self, File},
     io::{self},
