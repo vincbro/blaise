@@ -9,6 +9,7 @@ use crate::{
     },
     shared::{AVERAGE_STOP_DISTANCE, Coordinate, Distance, Time, time::Duration},
 };
+use dashmap::DashMap;
 use rayon::prelude::*;
 use std::{collections::HashMap, sync::Arc, time::Instant};
 use tracing::debug;
@@ -125,17 +126,14 @@ impl Repository {
     fn load_shapes(&mut self, gtfs_shapes: Vec<GtfsShape>) -> HashMap<String, Slice> {
         debug!("Loading shapes...");
         let now = Instant::now();
-        let mut shapes: HashMap<String, Vec<Shape>> = HashMap::with_capacity(gtfs_shapes.len());
-        gtfs_shapes.into_iter().for_each(|value| {
+        let shapes: DashMap<String, Vec<Shape>> = DashMap::with_capacity(gtfs_shapes.len());
+        gtfs_shapes.into_par_iter().for_each(|value| {
             let shape = Shape {
                 index: u32::MAX,
                 coordinate: Coordinate::new(value.shape_pt_lat, value.shape_pt_lon),
                 sequence: value.shape_pt_sequence,
                 distance_traveled: value.shape_dist_traveled.map(Distance::from_meters),
-                slice: Slice {
-                    start_idx: u32::MAX,
-                    count: u32::MAX,
-                },
+                slice: Slice::default(),
                 inner_idx: u32::MAX,
             };
             shapes.entry(value.shape_id).or_default().push(shape);
@@ -295,12 +293,12 @@ impl Repository {
     fn load_stop_times(&mut self, gtfs_stop_times: Vec<GtfsStopTime>) {
         debug!("Loading stop times...");
         let now = Instant::now();
-        let mut stop_times_map: HashMap<String, Vec<StopTime>> =
-            HashMap::with_capacity(self.trips.len());
+        let stop_times_map: DashMap<String, Vec<StopTime>> =
+            DashMap::with_capacity(self.trips.len());
         let mut trip_to_stop_times_slice: Vec<Slice> = vec![Default::default(); self.trips.len()];
         let mut stop_to_trips: Vec<Vec<u32>> = vec![Vec::new(); self.stops.len()];
 
-        gtfs_stop_times.into_iter().for_each(|value| {
+        gtfs_stop_times.into_par_iter().for_each(|value| {
             let stop_idx = *self
                 .stop_lookup
                 .get(value.stop_id.as_str())

@@ -108,41 +108,31 @@ impl GtfsReader {
                 if !file_path.exists() {
                     return Ok(GtfsTable::Unkown);
                 }
-                if filename == config.shapes_path.as_str() {
-                    let data: Vec<GtfsShape> = GtfsReader::parse_big_file_parallel(file_path)?;
-                    return Ok(GtfsTable::Shapes(data));
-                } else if filename == config.stop_times_path.as_str() {
-                    let data: Vec<GtfsStopTime> = GtfsReader::parse_big_file_parallel(file_path)?;
-                    return Ok(GtfsTable::StopTimes(data));
-                }
 
-                let file = File::open(&file_path)?;
-                let buf_reader = std::io::BufReader::with_capacity(128 * 1024, file);
-                let mut reader = csv::Reader::from_reader(buf_reader);
                 let table = if filename == config.stops_path.as_str() {
-                    let data: Vec<GtfsStop> =
-                        reader.deserialize().collect::<Result<Vec<_>, _>>()?;
+                    let data: Vec<GtfsStop> = par_parse_file(file_path)?;
                     GtfsTable::Stops(data)
                 } else if filename == config.areas_path.as_str() {
-                    let data: Vec<GtfsArea> =
-                        reader.deserialize().collect::<Result<Vec<_>, _>>()?;
+                    let data: Vec<GtfsArea> = par_parse_file(file_path)?;
                     GtfsTable::Areas(data)
                 } else if filename == config.stop_areas_path.as_str() {
-                    let data: Vec<GtfsStopArea> =
-                        reader.deserialize().collect::<Result<Vec<_>, _>>()?;
+                    let data: Vec<GtfsStopArea> = par_parse_file(file_path)?;
                     GtfsTable::StopAreas(data)
                 } else if filename == config.routes_path.as_str() {
-                    let data: Vec<GtfsRoute> =
-                        reader.deserialize().collect::<Result<Vec<_>, _>>()?;
+                    let data: Vec<GtfsRoute> = par_parse_file(file_path)?;
                     GtfsTable::Routes(data)
                 } else if filename == config.transfers_path.as_str() {
-                    let data: Vec<GtfsTransfer> =
-                        reader.deserialize().collect::<Result<Vec<_>, _>>()?;
+                    let data: Vec<GtfsTransfer> = par_parse_file(file_path)?;
                     GtfsTable::Transfers(data)
                 } else if filename == config.trips_path.as_str() {
-                    let data: Vec<GtfsTrip> =
-                        reader.deserialize().collect::<Result<Vec<_>, _>>()?;
+                    let data: Vec<GtfsTrip> = par_parse_file(file_path)?;
                     GtfsTable::Trips(data)
+                } else if filename == config.shapes_path.as_str() {
+                    let data: Vec<GtfsShape> = par_parse_file(file_path)?;
+                    GtfsTable::Shapes(data)
+                } else if filename == config.stop_times_path.as_str() {
+                    let data: Vec<GtfsStopTime> = par_parse_file(file_path)?;
+                    GtfsTable::StopTimes(data)
                 } else {
                     GtfsTable::Unkown
                 };
@@ -151,50 +141,50 @@ impl GtfsReader {
             .collect::<Result<_, self::Error>>()?;
         Ok(GtfsData::from(data))
     }
+}
 
-    fn parse_big_file_parallel<P, T>(path: P) -> Result<Vec<T>, self::Error>
-    where
-        P: AsRef<Path>,
-        T: DeserializeOwned + Sync + Send,
-    {
-        let file = File::open(path).unwrap();
-        let mmap = unsafe { MmapOptions::new().map(&file)? };
+fn par_parse_file<P, T>(path: P) -> Result<Vec<T>, self::Error>
+where
+    P: AsRef<Path>,
+    T: DeserializeOwned + Sync + Send,
+{
+    let file = File::open(path).unwrap();
+    let mmap = unsafe { MmapOptions::new().map(&file)? };
 
-        let num_threads = rayon::current_num_threads();
-        let len = mmap.len();
-        let chunk_size = len / num_threads;
+    let num_threads = rayon::current_num_threads();
+    let len = mmap.len();
+    let chunk_size = len / num_threads;
 
-        let header_len = mmap.iter().position(|&b| b == b'\n').unwrap() + 1;
-        let headers = &mmap[0..header_len];
+    let header_len = mmap.iter().position(|&b| b == b'\n').unwrap() + 1;
+    let headers = &mmap[0..header_len];
 
-        let mut offsets = Vec::with_capacity(num_threads + 1);
-        offsets.push(header_len);
+    let mut offsets = Vec::with_capacity(num_threads + 1);
+    offsets.push(header_len);
 
-        for i in 1..num_threads {
-            let mut target = i * chunk_size;
-            while target < len && mmap[target] != b'\n' {
-                target += 1;
-            }
-            offsets.push(target + 1);
+    for i in 1..num_threads {
+        let mut target = i * chunk_size;
+        while target < len && mmap[target] != b'\n' {
+            target += 1;
         }
-        offsets.push(len);
-
-        let chunks: Result<Vec<Vec<T>>, csv::Error> = offsets
-            .par_windows(2)
-            .map(|window| {
-                let start = window[0];
-                let end = window[1];
-                let slice = &mmap[start..end];
-                let chain = headers.chain(slice);
-                let mut csv = csv::ReaderBuilder::new()
-                    .has_headers(true)
-                    .from_reader(chain);
-
-                csv.deserialize().collect::<Result<Vec<T>, csv::Error>>()
-            })
-            .collect();
-
-        let data: Result<Vec<T>, csv::Error> = chunks.map(|c| c.into_iter().flatten().collect());
-        Ok(data?)
+        offsets.push(target + 1);
     }
+    offsets.push(len);
+
+    let chunks: Result<Vec<Vec<T>>, csv::Error> = offsets
+        .par_windows(2)
+        .map(|window| {
+            let start = window[0];
+            let end = window[1];
+            let slice = &mmap[start..end];
+            let chain = headers.chain(slice);
+            let mut csv = csv::ReaderBuilder::new()
+                .has_headers(true)
+                .from_reader(chain);
+
+            csv.deserialize().collect::<Result<Vec<T>, csv::Error>>()
+        })
+        .collect();
+
+    let data: Result<Vec<T>, csv::Error> = chunks.map(|c| c.into_iter().flatten().collect());
+    Ok(data?)
 }

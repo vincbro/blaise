@@ -1,5 +1,5 @@
 use crate::{
-    repository::{Area, Route, Stop, StopAccessType, StopTime, Timepoint},
+    repository::{Area, Route, Stop, StopTime},
     shared::{
         geo::{Coordinate, Distance},
         time::Time,
