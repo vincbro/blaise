@@ -139,9 +139,9 @@ impl From<GtfsStopTime> for StopTime {
             departure_time: Time::from_hms(&value.departure_time).unwrap(),
             headsign: value.stop_headsign.map(|val| val.into()),
             distance_traveled: value.shape_dist_traveled.map(Distance::from_meters),
-            pickup_type: StopAccessType::Regularly,
-            drop_off_type: StopAccessType::Regularly,
-            timepoint: Timepoint::Exact,
+            // pickup_type: StopAccessType::Regularly,
+            // drop_off_type: StopAccessType::Regularly,
+            // timepoint: Timepoint::Exact,
         }
     }
 }

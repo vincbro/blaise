@@ -7,7 +7,7 @@ use crate::{
     repository::{
         Area, Cell, RaptorRoute, Repository, Route, Shape, Slice, Stop, StopTime, Transfer, Trip,
     },
-    shared::{AVERAGE_STOP_DISTANCE, Coordinate, Distance, time::Duration},
+    shared::{AVERAGE_STOP_DISTANCE, Coordinate, Distance, Time, time::Duration},
 };
 use rayon::prelude::*;
 use std::{collections::HashMap, sync::Arc, time::Instant};
@@ -295,74 +295,69 @@ impl Repository {
     fn load_stop_times(&mut self, gtfs_stop_times: Vec<GtfsStopTime>) {
         debug!("Loading stop times...");
         let now = Instant::now();
+        let mut stop_times_map: HashMap<String, Vec<StopTime>> =
+            HashMap::with_capacity(self.trips.len());
         let mut trip_to_stop_times_slice: Vec<Slice> = vec![Default::default(); self.trips.len()];
         let mut stop_to_trips: Vec<Vec<u32>> = vec![Vec::new(); self.stops.len()];
-        let mut stop_times: Vec<StopTime> = Vec::with_capacity(gtfs_stop_times.len());
-        let mut last_trip: Option<&Trip> = None;
-        let mut start_idx = 0;
-        let mut buffer: Vec<StopTime> = vec![];
-        gtfs_stop_times
-            .into_iter()
-            .enumerate()
-            .for_each(|(i, stop_time)| {
-                // TEMP
-                let trip_idx = self.trip_lookup.get(stop_time.trip_id.as_str()).unwrap();
-                let trip = &self.trips[*trip_idx as usize];
 
-                if last_trip.is_none() {
-                    last_trip = Some(trip);
-                }
-
-                if let Some(ct) = last_trip
-                    && ct.index != trip.index
-                {
-                    let stop_time_slice = Slice {
-                        start_idx: start_idx as u32,
-                        count: buffer.len() as u32,
-                    };
-
-                    buffer.par_sort_by_key(|val| val.sequence);
-                    buffer.iter_mut().enumerate().for_each(|(j, st)| {
-                        st.inner_idx = j as u32;
-                        st.slice = stop_time_slice;
-                        st.index = stop_time_slice.start_idx + st.inner_idx;
-                    });
-                    trip_to_stop_times_slice[ct.index as usize] = stop_time_slice;
-                    stop_times.append(&mut buffer);
-                    last_trip = Some(trip);
-                    start_idx = i;
-                }
-
-                // TEMP
-                let stop_idx = self.stop_lookup.get(stop_time.stop_id.as_str()).unwrap();
-
-                let mut value: StopTime = stop_time.into();
-                value.trip_idx = *trip_idx;
-                value.stop_idx = *stop_idx;
-                buffer.push(value);
-
-                stop_to_trips[*stop_idx as usize].push(*trip_idx);
-            });
-
-        // If there was a last trip add the buffer to it
-        if let Some(trip) = last_trip {
-            let stop_time_slice = Slice {
-                start_idx: start_idx as u32,
-                count: buffer.len() as u32,
+        gtfs_stop_times.into_iter().for_each(|value| {
+            let stop_idx = *self
+                .stop_lookup
+                .get(value.stop_id.as_str())
+                .expect("Failed to find stop");
+            let stop_time = StopTime {
+                index: u32::MAX,
+                trip_idx: u32::MAX,
+                stop_idx,
+                sequence: value.stop_sequence,
+                slice: Default::default(),
+                inner_idx: u32::MAX,
+                arrival_time: Time::from_hms(&value.arrival_time).expect("Invalid time format"),
+                departure_time: Time::from_hms(&value.departure_time).expect("Invalid time format"),
+                headsign: value.stop_headsign.map(|data| data.into()),
+                distance_traveled: value.shape_dist_traveled.map(Distance::from_meters),
             };
-            buffer.par_sort_by_key(|val| val.sequence);
-            buffer.iter_mut().enumerate().for_each(|(j, st)| {
-                st.inner_idx = j as u32;
-                st.slice = stop_time_slice;
-                st.index = st.slice.start_idx + st.inner_idx;
-            });
-            trip_to_stop_times_slice[trip.index as usize] = stop_time_slice;
-            stop_times.append(&mut buffer);
-        }
+
+            stop_times_map
+                .entry(value.trip_id)
+                .or_default()
+                .push(stop_time);
+        });
+
+        let mut idx: u32 = 0;
+
+        let stop_times: Vec<_> = stop_times_map
+            .into_iter()
+            .flat_map(|(trip_id, mut stop_times)| {
+                let trip_idx = *self
+                    .trip_lookup
+                    .get(trip_id.as_str())
+                    .expect("Failed to find trip");
+                let count = stop_times.len() as u32;
+                let slice = Slice {
+                    start_idx: idx,
+                    count,
+                };
+
+                trip_to_stop_times_slice[trip_idx as usize] = slice;
+
+                stop_times.par_sort_by_key(|s| s.sequence);
+                stop_times.iter_mut().enumerate().for_each(|(i, s)| {
+                    let i = i as u32;
+                    s.index = idx + i;
+                    s.inner_idx = i;
+                    s.slice = slice;
+                    s.trip_idx = trip_idx;
+
+                    stop_to_trips[s.stop_idx as usize].push(s.trip_idx);
+                });
+                idx += count;
+                stop_times
+            })
+            .collect();
 
         self.stop_times = stop_times.into();
         self.trip_to_stop_times_slice = trip_to_stop_times_slice.into();
-
         let stop_to_trips: Box<[Box<[u32]>]> =
             stop_to_trips.into_iter().map(|val| val.into()).collect();
         self.stop_to_trips = stop_to_trips;
