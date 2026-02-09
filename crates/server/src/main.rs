@@ -4,8 +4,8 @@ mod state;
 
 use crate::state::{AllocatorPool, AppState};
 use axum::routing::get;
-use blaise::prelude::*;
-use std::{env, path::Path, sync::Arc, time::Instant};
+use blaise::{gtfs::GtfsReader, repository::Repository};
+use std::{env, path::Path, str::FromStr, sync::Arc, time::Instant};
 use tokio::{net::TcpListener, sync::RwLock};
 use tracing::{Level, info, warn};
 

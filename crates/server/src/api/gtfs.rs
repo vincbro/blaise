@@ -4,7 +4,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use blaise::prelude::*;
+use blaise::{gtfs::GtfsReader, repository::Repository};
 use futures_util::StreamExt;
 use reqwest::header::ACCEPT_ENCODING;
 use std::{collections::HashMap, fs, path::Path, sync::Arc, time::Instant};

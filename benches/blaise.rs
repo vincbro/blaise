@@ -1,7 +1,7 @@
 use blaise::{
     gtfs::GtfsReader,
-    prelude::Repository,
     raptor::{Allocator, Location},
+    repository::Repository,
     shared::{Coordinate, Time},
 };
 use criterion::{Criterion, criterion_group, criterion_main};
