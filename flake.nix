@@ -39,7 +39,7 @@
           # and pkg-config is in nativeBuildInputs.
           shellHook = ''
             echo "🦀 Welcome to the Blaise development shell!"
-            alias bench = "bencher run --project blaise --adapter rust_criterion --branch v0.1.5 "cargo bench""
+            # alias bench = "bencher run --project blaise --adapter rust_criterion --branch v0.1.5 "cargo bench""
             '';
         };
       });
