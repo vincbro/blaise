@@ -28,7 +28,7 @@ Fuzzy stop search lives in gtfs-bin, next to the data it searches.
 ## Installation
 
 ```bash
-cargo add blaise
+cargo add blaise-core
 ```
 
 ## Quick start
@@ -44,14 +44,14 @@ Then map the file and ask for a route:
 ```rust
 use std::fs::File;
 
-use blaise::{
+use blaise_core::{
     raptor::{
         query::{QueryLocation, RaptorQuery},
         state::State,
     },
     spatial::SpatialGrid,
 };
-use gtfs_bin::{
+use gtfs_bin_core::{
     consumer::Consumer,
     models::{Coordinate, Time},
 };
@@ -84,7 +84,7 @@ fn main() -> anyhow::Result<()> {
 Apply GTFS-realtime feeds with gtfs-bin and hand the result to the query:
 
 ```rust
-use gtfs_bin::rt::{self, Realtime, RealtimeBuilder};
+use gtfs_bin_core::rt::{self, Realtime, RealtimeBuilder};
 
 let mut realtime = Realtime::for_service_date(&consumer, query.date);
 let message = rt::decode_feed(&std::fs::read("TripUpdates.pb")?)?;
@@ -98,7 +98,7 @@ let itinerary = query.with_realtime(&realtime).solve(&consumer, &spatial, &mut s
 The `blaise` binary plans one route and prints the itinerary, which is handy for trying a network out. Every file after the network is a GTFS-realtime feed, applied in order:
 
 ```bash
-cargo run --release -- network.gtfs [TripUpdates.pb ...]
+cargo run --release -p blaise -- network.gtfs [TripUpdates.pb ...]
 ```
 
 ## Development

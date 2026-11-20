@@ -6,12 +6,12 @@
 //! reset of the state before it included. Opening the network and building the grid are outside
 //! the timer.
 //!
-//! The network is the file `bench.gtfs` in the working directory, one compiled by gtfs-bin from a
-//! Stockholm feed: `gtfs-bin -i sweden.zip -o bench.gtfs`.
+//! The network is the file `bench.gtfs` in the root of the repository, one compiled by gtfs-bin
+//! from a Stockholm feed: `gtfs-bin -i sweden.zip -o bench.gtfs`.
 
 use std::{fs::File, hint};
 
-use blaise::{
+use blaise_core::{
     raptor::{
         query::{QueryLocation, RaptorQuery},
         state::State,
@@ -19,14 +19,15 @@ use blaise::{
     spatial::SpatialGrid,
 };
 use criterion::{BenchmarkId, Criterion};
-use gtfs_bin::{
+use gtfs_bin_core::{
     consumer::Consumer,
     models::{Coordinate, Time},
 };
 use memmap2::Mmap;
 
-/// The network to plan on, relative to the working directory.
-const NETWORK: &str = "bench.gtfs";
+/// The network to plan on. Cargo runs a bench from its crate's directory, so the path starts
+/// there.
+const NETWORK: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../bench.gtfs");
 
 /// A journey as `(name, from, to)`, with positions as `(latitude, longitude)`.
 type Route = (&'static str, (f64, f64), (f64, f64));
@@ -96,7 +97,7 @@ fn phase(criterion: &mut Criterion, name: &str, time: &str, backward: bool) {
 )]
 fn map() -> Mmap {
     let file = File::open(NETWORK)
-        .expect("bench.gtfs is in the working directory, see the top of this file");
+        .expect("bench.gtfs is in the root of the repository, see the top of this file");
     // SAFETY: the file is only read, and nothing here modifies it while it is mapped.
     unsafe { Mmap::map(&file) }.expect("the network file maps")
 }

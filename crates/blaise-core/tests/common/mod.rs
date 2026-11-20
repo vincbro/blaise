@@ -3,7 +3,7 @@
 
 use std::{fs, io::Write};
 
-use blaise::{
+use blaise_core::{
     raptor::{
         itinerary::{Itinerary, LegType},
         query::{QueryLocation, RaptorQuery},
@@ -11,8 +11,8 @@ use blaise::{
     },
     spatial::SpatialGrid,
 };
-use gtfs_bin::{
-    compiler::Compiler,
+use gtfs_bin_compiler::Compiler;
+use gtfs_bin_core::{
     consumer::Consumer,
     models::{Date, StopIndex, Time},
     rt::Realtime,
@@ -112,7 +112,10 @@ pub(crate) fn query<'a>(
     }
 }
 
-pub(crate) fn solve(consumer: &Consumer<'_>, query: RaptorQuery<'_>) -> blaise::Result<Itinerary> {
+pub(crate) fn solve(
+    consumer: &Consumer<'_>,
+    query: RaptorQuery<'_>,
+) -> blaise_core::Result<Itinerary> {
     let spatial = SpatialGrid::new(consumer);
     let mut state = State::new(consumer);
     query.solve(consumer, &spatial, &mut state)

@@ -1,4 +1,4 @@
-use gtfs_bin::{
+use gtfs_bin_core::{
     consumer::Consumer,
     models::{Coordinate, Date, StopIndex, StopTime, Time},
     rt::Realtime,

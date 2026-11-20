@@ -1,6 +1,6 @@
 use std::ops::RangeInclusive;
 
-use gtfs_bin::{
+use gtfs_bin_core::{
     consumer::Consumer,
     models::{Date, Distance, Optional, StopIndex, StopTime, Time, TripIndex},
 };

@@ -1,4 +1,4 @@
-use gtfs_bin::{
+use gtfs_bin_core::{
     consumer::Consumer,
     models::{Coordinate, Delay, Duration, Sentinel, StopIndex, Time},
 };

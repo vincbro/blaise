@@ -4,14 +4,14 @@ mod common;
 
 #[cfg(test)]
 mod tests {
-    use blaise::{
+    use blaise_core::{
         Error,
         raptor::{
             itinerary::LegType,
             query::{Location, QueryLocation},
         },
     };
-    use gtfs_bin::{
+    use gtfs_bin_core::{
         consumer::Consumer,
         models::Coordinate,
         rt::{Realtime, RealtimeBuilder},

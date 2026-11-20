@@ -1,7 +1,9 @@
+//! Plans a journey over a compiled GTFS network from the command line.
+
 use std::{env, fs, fs::File, time::Instant};
 
 use anyhow::Context;
-use blaise::{
+use blaise_core::{
     raptor::{
         self, LiveTime,
         itinerary::{Itinerary, Leg, LegType},
@@ -10,7 +12,7 @@ use blaise::{
     },
     spatial::SpatialGrid,
 };
-use gtfs_bin::{
+use gtfs_bin_core::{
     consumer::Consumer,
     rt::{self, Realtime, RealtimeBuilder},
 };

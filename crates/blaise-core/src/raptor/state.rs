@@ -1,6 +1,6 @@
 use std::mem;
 
-use gtfs_bin::{
+use gtfs_bin_core::{
     consumer::Consumer,
     models::{Duration, Optional, Sentinel, StopIndex, Time, TripPatternIndex},
 };

@@ -4,7 +4,7 @@
 mod tests {
     use std::{fs, io::Write};
 
-    use blaise::{
+    use blaise_core::{
         raptor::{
             itinerary::{Itinerary, LegType},
             query::{QueryLocation, RaptorQuery},
@@ -12,8 +12,8 @@ mod tests {
         },
         spatial::SpatialGrid,
     };
-    use gtfs_bin::{
-        compiler::Compiler,
+    use gtfs_bin_compiler::Compiler;
+    use gtfs_bin_core::{
         consumer::Consumer,
         models::{Date, StopIndex, Time},
         rt::{Realtime, RealtimeBuilder},

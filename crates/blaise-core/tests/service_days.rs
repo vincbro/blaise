@@ -4,11 +4,11 @@ mod common;
 
 #[cfg(test)]
 mod tests {
-    use blaise::{
+    use blaise_core::{
         Error,
         raptor::{itinerary::Itinerary, query::RaptorQuery},
     };
-    use gtfs_bin::{
+    use gtfs_bin_core::{
         consumer::Consumer,
         models::{Date, StopIndex, Time},
     };
@@ -47,7 +47,7 @@ mod tests {
         common::network_on(calendar, calendar_dates, &trips, &stop_times)
     }
 
-    fn departing(consumer: &Consumer<'_>, date: &str, at: &str) -> blaise::Result<Itinerary> {
+    fn departing(consumer: &Consumer<'_>, date: &str, at: &str) -> blaise_core::Result<Itinerary> {
         let (alpha, gamma) = (stop(consumer, "A"), stop(consumer, "C"));
         solve(
             consumer,
@@ -57,7 +57,7 @@ mod tests {
         )
     }
 
-    fn arriving(consumer: &Consumer<'_>, date: &str, at: &str) -> blaise::Result<Itinerary> {
+    fn arriving(consumer: &Consumer<'_>, date: &str, at: &str) -> blaise_core::Result<Itinerary> {
         let (alpha, gamma): (StopIndex, StopIndex) = (stop(consumer, "A"), stop(consumer, "C"));
         solve(
             consumer,
