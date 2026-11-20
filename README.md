@@ -1,47 +1,29 @@
-![blaise](./assets/blaise.png)
-
+# 🚉 blaise
 
 [![Crates.io](https://img.shields.io/crates/v/blaise.svg)](https://crates.io/crates/blaise)
 [![Documentation](https://docs.rs/blaise/badge.svg)](https://docs.rs/blaise)
-[![License](https://img.shields.io/crates/l/blaise.svg)](LICENSE)
+[![License](https://img.shields.io/crates/l/blaise.svg)](LICENSE-MIT)
 
+A transit router that runs on your machine.
 
-*blaise* (/blɛz/) named after **Blaise Pascal**,
-a French mathematician and physicist who created the
-first public transit system in Paris in 1662 called the Carrosses à cinq sols.
+*blaise* (/blɛz/) is named after **Blaise Pascal**, the French mathematician and physicist who started the first public transit system in Paris in 1662, the Carrosses à cinq sols.
 
+- No API keys, no rate limits, no network. Your queries never leave your process.
+- One compiled file per network, memory-mapped. Nothing to parse at startup.
+- Real-time delays, cancellations and skipped stops, when you have a GTFS-realtime feed.
 
-*blaise* is a high-performance, fully local transit engine. It removes the "bottleneck" of developing transit applications and simulations by handling the complex infrastructure of schedule processing and routing entirely on your own hardware.
+## How it works
 
+blaise is a library that plans journeys with [RAPTOR](https://www.microsoft.com/en-us/research/wp-content/uploads/2012/01/raptor_alenex.pdf), over a network compiled by [gtfs-bin](https://github.com/vincbro/gtfs-bin). gtfs-bin turns a GTFS feed into one flat file once, and blaise reads it in place.
 
-## Why blaise?
+- **Fast routing.** Rounds run on a rayon pool, and a query allocates nothing that outlives it except the itinerary.
+- **Both directions.** Ask for the best trip leaving at a time, or arriving by one.
+- **Walking and transfers.** A coordinate can be an origin or a destination. A spatial grid finds the stops around it.
+- **Pareto-optimal.** A route is judged on more than the clock, so a slightly later trip with fewer changes can win.
+- **Service days.** Weekly calendars and holiday exceptions pick the trips. A trip of the day before that runs past midnight, and tomorrow's first trips, are both in reach. `Itinerary::date` is the date its times count from, and a time past 24:00:00 is on the day after, as in GTFS.
+- **Live.** Delays move the times, canceled trips and skipped stops are not used, and every time in the itinerary carries both the scheduled and the expected value.
 
-Developing apps that use public transit data usually means dealing with high-latency external APIs or the overwhelming complexity of raw GTFS files. blaise provides a better way:
-
-- **Total Control**: No API keys, no rate limits, and no "black-box" routing. You own the code and the data.
-
-- **Built for Scale**: Designed for simulations and high-traffic tools, allowing you to run thousands of queries per second with zero network latency.
-
-- **Privacy First**: Your users' location data and search queries never leave your environment.
-
-- **Transparent Logic**: Built in Rust for speed and predictability. The relationship between stops, trips, and routes is clear and easy to query.
-
-
-## Core Features
-- **Fast Routing**: Efficient schedule-based pathfinding using a highly optimized version of the RAPTOR algorithm.
-
-- **Smart Search**: A built-in fuzzy search engine that handles partial names, typos, and abbreviations for stops and areas.
-
-- **Geospatial Lookups**: Instant discovery of transit options based on geographic coordinates using spatial indexing.
-
-> [!NOTE]
-> This project is early in development, if you like the idea and want to help improve it, please open an issue.
-
-
-## Server
-While *blaise* is a library, there is also a standalone server for projects that cannot directly integrate with the Rust crate. The *blaise server* wraps this functionality in a ready-to-use REST API, supporting search, proximity queries, and routing out of the box.
-
-[Read more](./crates/server/README.md)
+Fuzzy stop search lives in gtfs-bin, next to the data it searches.
 
 ## Installation
 
@@ -49,9 +31,9 @@ While *blaise* is a library, there is also a standalone server for projects that
 cargo add blaise
 ```
 
-## Quick Start
+## Quick start
 
-blaise plans on a network compiled by [gtfs-bin](https://github.com/vincbro/gtfs-bin). Compile your feed once:
+Compile your feed once:
 
 ```bash
 gtfs-bin -i gtfs.zip -o network.gtfs
@@ -99,7 +81,7 @@ fn main() -> anyhow::Result<()> {
 
 ### Realtime
 
-Apply GTFS-realtime feeds with gtfs-bin and hand the result to the query. Delays move the times, canceled trips and skipped stops are not used, and every time in the itinerary carries both the scheduled and the expected value:
+Apply GTFS-realtime feeds with gtfs-bin and hand the result to the query:
 
 ```rust
 use gtfs_bin::rt::{self, Realtime, RealtimeBuilder};
@@ -111,20 +93,46 @@ RealtimeBuilder::new(&consumer).apply([message].into_iter(), &mut realtime);
 let itinerary = query.with_realtime(&realtime).solve(&consumer, &spatial, &mut state)?;
 ```
 
+## Command line
+
+The `blaise` binary plans one route and prints the itinerary, which is handy for trying a network out. Every file after the network is a GTFS-realtime feed, applied in order:
+
+```bash
+cargo run --release -- network.gtfs [TripUpdates.pb ...]
+```
+
+## Development
+
+You need [rustup](https://rustup.rs) and [just](https://github.com/casey/just). The coding rules are in the `code-standards/` submodule, so clone with `--recurse-submodules`.
+
+```sh
+just toolchain   # the pinned Rust, nightly rustfmt, the cargo tools and the git hooks
+just check       # what CI runs: fmt, clippy, docs, tests, dependencies
+just check-full  # the same, with the property tests run for 40000 cases
+just bench       # a route query timed forward and backward, on bench.gtfs
+```
+
+Run `just` on its own to list every recipe. [STANDARDS.local.md](STANDARDS.local.md) holds what is specific to this project: the hot paths and the measured performance problems.
+
 ## Roadmap
 
-- [x] Web server crate with docker image
-- [x] Multi-threaded routing (Switching to RAPTOR)
-- [x] Arrival and departure time constraints for routing
+- [x] Multi-threaded routing (RAPTOR)
+- [x] Arrival and departure time constraints
 - [x] Real-time data updates (GTFS-RT)
-- [ ] Advanced date and holiday filtering
+- [x] Service dates: `calendar.txt`, `calendar_dates.txt` exceptions and holidays
+- [x] Trips that run past midnight, and journeys that cross it
 
-## Refrences
+## References
 
 - [GTFS Specification](https://gtfs.org/documentation/schedule/reference/)
-- [Development Data (Sweden)](https://www.trafiklab.se/api/gtfs-datasets/gtfs-sweden/static-specification/)
+- [Development data (Sweden)](https://www.trafiklab.se/api/gtfs-datasets/gtfs-sweden/static-specification/)
 - [RAPTOR](https://www.microsoft.com/en-us/research/wp-content/uploads/2012/01/raptor_alenex.pdf)
 
 ## License
 
-This project is licensed under the MIT License.
+Licensed under either of
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>)
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
+
+at your option.
