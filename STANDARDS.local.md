@@ -7,7 +7,7 @@ What is specific to this project. The shared rules are in `code-standards/`. Whe
 - **Gate** (must pass before any change is done): `just check`
 - **Full gate** (the gate with every property test run for 40000 cases, for after touching `State`, `SpatialGrid` or `ParetoFront`): `just check-full`
 - **Commit-message check** (takes a message file): `just commit-msg <file>`
-- **Benchmarks** (for P-MEASURE): `just bench`. `benches/route.rs` reads `bench.gtfs` from the working directory, a network compiled by gtfs-bin from a Stockholm feed (SL). It plans a `short` and a `long` route, forward and backward. Run them before and after a change made for speed, and put the numbers in the commit body.
+- **Benchmarks** (for P-MEASURE): `just bench`. `crates/blaise-core/benches/route.rs` reads `bench.gtfs` from the root of the repository, a network compiled by gtfs-bin from a Stockholm feed (SL). It plans a `short` and a `long` route, forward and backward. Run them before and after a change made for speed, and put the numbers in the commit body.
 
 ## Hot paths
 
@@ -30,4 +30,4 @@ Measured, not yet changed. A review doesn't repeat these. It reports one only if
 
 ## Overrides
 
-- **S-ERRORS (anyhow):** `blaise` is a library and a binary in one package, so `anyhow` is a dependency of the library crate too, and `cargo-deny` can't allow it for the binary alone. The library returns `blaise::Error`, and only `src/main.rs` uses `anyhow`. Splitting the binary into its own crate would let `deny.toml` ban `anyhow` again.
+- **S-ERRORS (anyhow):** `blaise-core` is a library and returns `blaise_core::Error`. Only the `blaise` binary crate, `crates/blaise-cli`, uses `anyhow`.

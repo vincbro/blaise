@@ -1,0 +1,25 @@
+[package]
+name = "blaise"
+description = "A transit router that runs on your machine: plan a journey over a compiled GTFS file from the command line."
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords = ["transit", "gtfs", "routing-engine", "raptor", "public-transport"]
+categories = ["command-line-utilities", "science::geo"]
+
+[[bin]]
+name = "blaise"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+blaise-core.workspace = true
+gtfs-bin-core.workspace = true
+memmap2.workspace = true
+
+[lints]
+workspace = true

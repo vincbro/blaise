@@ -3,7 +3,7 @@
 
 use std::{fs, io::Write};
 
-use blaise::{
+use blaise_core::{
     raptor::{
         itinerary::{Itinerary, LegType},
         query::{QueryLocation, RaptorQuery},
@@ -11,8 +11,8 @@ use blaise::{
     },
     spatial::SpatialGrid,
 };
-use gtfs_bin::{
-    compiler::Compiler,
+use gtfs_bin_compiler::Compiler;
+use gtfs_bin_core::{
     consumer::Consumer,
     models::{Date, StopIndex, Time},
     rt::Realtime,
@@ -28,11 +28,27 @@ pub(crate) const STOPS: &str = "stop_id,stop_name,stop_lat,stop_lon\nA,Alpha,59.
 pub(crate) const STOP_TIMES_HEADER: &str =
     "trip_id,arrival_time,departure_time,stop_id,stop_sequence,pickup_type,drop_off_type\n";
 
+pub(crate) fn network(trips: &str, stop_times: &str) -> (NamedTempFile, Mmap) {
+    network_on(EVERY_DAY, None, trips, stop_times)
+}
+
+/// A service `s` that runs every day of 2030.
+pub(crate) const EVERY_DAY: &str = "s,1,1,1,1,1,1,1,20300101,20301231\n";
+
+/// A service `s` that never runs by its weekly pattern, so only `calendar_dates.txt` decides.
+pub(crate) const NO_DAY: &str = "s,0,0,0,0,0,0,0,20300101,20301231\n";
+
+/// Like [`network`], with the given rows for `calendar.txt` and, if any, `calendar_dates.txt`.
 #[allow(
     unsafe_code,
     reason = "mapping a file is unsafe in memmap2, and this file is not modified"
 )]
-pub(crate) fn network(trips: &str, stop_times: &str) -> (NamedTempFile, Mmap) {
+pub(crate) fn network_on(
+    calendar: &str,
+    calendar_dates: Option<&str>,
+    trips: &str,
+    stop_times: &str,
+) -> (NamedTempFile, Mmap) {
     let dir = TempDir::new().expect("a temp dir");
     let files = [
         (
@@ -43,11 +59,18 @@ pub(crate) fn network(trips: &str, stop_times: &str) -> (NamedTempFile, Mmap) {
         ("routes.txt", "route_id,agency_id,route_short_name,route_type\nR,a,1,3\n".to_owned()),
         (
             "calendar.txt",
-            "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\ns,1,1,1,1,1,1,1,20300101,20301231\n".to_owned(),
+            format!("service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\n{calendar}"),
         ),
         ("trips.txt", format!("route_id,service_id,trip_id\n{trips}")),
         ("stop_times.txt", format!("{STOP_TIMES_HEADER}{stop_times}")),
     ];
+    if let Some(rows) = calendar_dates {
+        fs::write(
+            dir.path().join("calendar_dates.txt"),
+            format!("service_id,date,exception_type\n{rows}"),
+        )
+        .expect("the feed is writable");
+    }
     for (name, text) in files {
         fs::write(dir.path().join(name), text).expect("the feed is writable");
     }
@@ -89,7 +112,10 @@ pub(crate) fn query<'a>(
     }
 }
 
-pub(crate) fn solve(consumer: &Consumer<'_>, query: RaptorQuery<'_>) -> blaise::Result<Itinerary> {
+pub(crate) fn solve(
+    consumer: &Consumer<'_>,
+    query: RaptorQuery<'_>,
+) -> blaise_core::Result<Itinerary> {
     let spatial = SpatialGrid::new(consumer);
     let mut state = State::new(consumer);
     query.solve(consumer, &spatial, &mut state)

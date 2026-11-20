@@ -1,6 +1,6 @@
-use gtfs_bin::models::{StopIndex, Time, TripIndex};
+use gtfs_bin_core::models::{StopIndex, Time, TripIndex};
 
-use crate::raptor::{LiveTime, PatternPosition};
+use crate::raptor::{Day, LiveTime, PatternPosition};
 
 /// How a passenger moves between two stops without a vehicle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -16,6 +16,7 @@ pub(crate) enum Parent {
         boarding_position: PatternPosition,
         alighting_position: PatternPosition,
         trip: TripIndex,
+        day: Day,
         departure_time: LiveTime,
         arrival_time: LiveTime,
     },

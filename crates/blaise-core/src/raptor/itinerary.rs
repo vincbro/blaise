@@ -1,14 +1,14 @@
 use std::ops::RangeInclusive;
 
-use gtfs_bin::{
+use gtfs_bin_core::{
     consumer::Consumer,
-    models::{Distance, Optional, StopIndex, StopTime, Time, TripIndex},
+    models::{Date, Distance, Optional, StopIndex, StopTime, Time, TripIndex},
 };
 
 use crate::{
     Error, Result,
     raptor::{
-        LiveTime,
+        DAY_SECONDS, Day, LiveTime,
         pareto::ParetoLabel,
         query::{Location, RaptorQuery, TimeDirection},
         state::State,
@@ -44,17 +44,18 @@ pub struct LegStop {
 
 impl LegStop {
     /// A stop of a transit leg. A stop the vehicle skips keeps its scheduled times.
-    fn new(query: &RaptorQuery<'_>, stop: StopIndex, stop_time: &StopTime) -> Self {
-        let scheduled =
-            |time: Optional<Time>| LiveTime::scheduled_only(time.as_option().unwrap_or(Time(0)));
+    fn new(query: &RaptorQuery<'_>, stop: StopIndex, stop_time: &StopTime, day: Day) -> Self {
+        let scheduled = |time: Optional<Time>, day: Day| {
+            LiveTime::scheduled_only(time.as_option().unwrap_or(Time(0))).shifted(day.shift())
+        };
         Self {
             location: Location::Stop(stop),
             departure_time: query
-                .departure(stop_time)
-                .unwrap_or_else(|| scheduled(stop_time.departure_time)),
+                .departure(stop_time, day)
+                .unwrap_or_else(|| scheduled(stop_time.departure_time, day)),
             arrival_time: query
-                .arrival(stop_time)
-                .unwrap_or_else(|| scheduled(stop_time.arrival_time)),
+                .arrival(stop_time, day)
+                .unwrap_or_else(|| scheduled(stop_time.arrival_time, day)),
             distance_traveled: stop_time.distance_traveled,
         }
     }
@@ -62,6 +63,9 @@ impl LegStop {
 
 #[derive(Debug, Clone)]
 pub struct Itinerary {
+    /// The date the times of the legs count from. A time past 24:00:00 is on the day after, as in
+    /// GTFS. This is the query's date, unless the journey starts the day before it.
+    pub date: Date,
     pub from: Location,
     pub to: Location,
     pub legs: Box<[Leg]>,
@@ -119,10 +123,33 @@ impl Itinerary {
             )
         };
         Ok(Self {
+            date: query.service_date(Day::ALL[0]).unwrap_or(query.date),
             from,
             to,
             legs: legs.into_boxed_slice(),
         })
+    }
+
+    /// Moves the legs from the search clock, which starts a day before the query's date, to the
+    /// date the first leg starts on: the query's date, unless the journey starts the day before.
+    pub(crate) fn rebased(mut self) -> Self {
+        let starts_on_query_date = self
+            .legs
+            .first()
+            .is_some_and(|leg| leg.departure_time.actual.0 >= DAY_SECONDS);
+        if !starts_on_query_date {
+            return self;
+        }
+        self.date = Date(self.date.0 + 1);
+        for leg in &mut self.legs {
+            leg.departure_time = leg.departure_time.earlier(DAY_SECONDS);
+            leg.arrival_time = leg.arrival_time.earlier(DAY_SECONDS);
+            for stop in &mut leg.stops {
+                stop.departure_time = stop.departure_time.earlier(DAY_SECONDS);
+                stop.arrival_time = stop.arrival_time.earlier(DAY_SECONDS);
+            }
+        }
+        self
     }
 }
 
@@ -208,6 +235,7 @@ impl Trace<'_> {
                 boarding_position,
                 alighting_position,
                 trip,
+                day,
                 departure_time,
                 arrival_time,
             } => {
@@ -215,7 +243,7 @@ impl Trace<'_> {
                 self.follow_transit(
                     cursor,
                     legs,
-                    trip,
+                    (trip, day),
                     positions,
                     [departure_time, arrival_time],
                 );
@@ -253,7 +281,7 @@ impl Trace<'_> {
         &self,
         cursor: &mut Cursor,
         legs: &mut Vec<Leg>,
-        trip: TripIndex,
+        (trip, day): (TripIndex, Day),
         positions: RangeInclusive<usize>,
         times: [LiveTime; 2],
     ) {
@@ -263,7 +291,7 @@ impl Trace<'_> {
 
         let stop_times = self.consumer.stop_times_by_trip(trip);
         let leg_stops = positions
-            .map(|position| LegStop::new(self.query, stops[position], &stop_times[position]))
+            .map(|position| LegStop::new(self.query, stops[position], &stop_times[position], day))
             .collect();
         legs.push(Leg {
             from: Location::Stop(boarding),

@@ -2,7 +2,8 @@
 
 use std::{fmt::Write as _, fs, io::Write as _};
 
-use gtfs_bin::{compiler::Compiler, consumer::Consumer};
+use gtfs_bin_compiler::Compiler;
+use gtfs_bin_core::consumer::Consumer;
 use memmap2::Mmap;
 use tempfile::{NamedTempFile, TempDir};
 

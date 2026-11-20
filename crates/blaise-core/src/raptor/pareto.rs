@@ -1,4 +1,4 @@
-use gtfs_bin::models::{Duration, Time};
+use gtfs_bin_core::models::{Duration, Time};
 
 /// Narrows a cost summed in `f64` to the `f32` a label stores.
 #[allow(

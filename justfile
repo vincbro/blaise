@@ -8,19 +8,23 @@ fmt_toolchain := "nightly-2026-10-13"
 default:
     @just --list
 
-# Build the crate
+# Run blaise from source; extra args go to blaise: just run [args]
+run *args:
+    cargo run --release -p blaise -- {{ args }}
+
+# Build the workspace
 build:
-    cargo build
+    cargo build --workspace
 
 # Format every Rust and TOML file, and sort Cargo.toml dependency tables
 fmt:
     cargo +{{ fmt_toolchain }} fmt --all
-    cargo sort --no-format
+    cargo sort --workspace --no-format
     taplo fmt
 
 # Apply clippy's automatic fixes, then format
 fix:
-    cargo clippy --fix --allow-dirty --allow-staged --all-targets
+    cargo clippy --fix --allow-dirty --allow-staged --workspace --all-targets
     cargo +{{ fmt_toolchain }} fmt --all
 
 # The CI gate: run it before you push
@@ -33,35 +37,39 @@ check-full: fmt-check clippy doc test-full deps
 # Fail on any file `just fmt` would change
 fmt-check:
     cargo +{{ fmt_toolchain }} fmt --all -- --check
-    cargo sort --no-format --check
+    cargo sort --workspace --no-format --check
     taplo fmt --check
 
 # Fail on any lint
 clippy:
-    cargo clippy --all-targets --all-features --locked -- -D warnings
+    cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
 # Build the docs; any rustdoc warning fails
 doc:
-    RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items --locked
+    RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --document-private-items --locked
 
 # Run every test
 test:
-    cargo test --locked
+    cargo test --workspace --locked
 
 # Run every test, the property tests for 40000 cases each
 test-full:
-    PROPTEST_CASES=40000 cargo test --locked
+    PROPTEST_CASES=40000 cargo test --workspace --locked
 
 # Time a route query forward and backward on the network in bench.gtfs; criterion compares with
 # the last run. Extra args go to criterion: just bench [args]
 bench *args:
-    cargo bench --bench route -- {{ args }}
+    cargo bench -p blaise-core --bench route -- {{ args }}
 
 # Fail on unused dependencies, or on any cargo-deny check in deny.toml:
 # advisories, licenses, sources
 deps:
     cargo machete
     cargo deny --locked check
+
+# Set every crate's version, internal requirements included: just bump 0.4.0
+bump version:
+    cargo set-version --workspace {{ quote(version) }}
 
 # Install the pinned toolchain from rust-toolchain.toml and the nightly rustfmt
 # `just fmt` uses, and off CI the cargo tools other recipes call (CI installs
@@ -106,4 +114,4 @@ commits base="origin/main":
 
 # Each tool only if it's missing: command:crate
 _tools:
-    for tool in cargo-machete:cargo-machete cargo-deny:cargo-deny cargo-sort:cargo-sort taplo:taplo-cli; do command -v "${tool%%:*}" >/dev/null || cargo install --locked "${tool#*:}"; done
+    for tool in cargo-set-version:cargo-edit cargo-machete:cargo-machete cargo-deny:cargo-deny cargo-sort:cargo-sort taplo:taplo-cli; do command -v "${tool%%:*}" >/dev/null || cargo install --locked "${tool#*:}"; done

@@ -1,4 +1,4 @@
-use gtfs_bin::models::{Duration, StopIndex, Time};
+use gtfs_bin_core::models::{Duration, StopIndex, Time};
 use proptest::{collection::vec, prelude::*};
 
 use super::State;

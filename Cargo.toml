@@ -1,41 +1,35 @@
-[package]
-version = "0.2.0"
-name = "blaise"
-description = "A fast, local-first engine for GTFS transit data. Handles routing, fuzzy search, and geospatial queries without relying on external APIs."
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+# Every crate is versioned in lockstep from here: `just bump <version>`.
+[workspace.package]
+version = "0.3.0"
 authors = ["Vincent Brodin <vincent.brodin21@gmail.com>"]
-license = "MIT"
-readme = "README.md"
-categories = ["algorithms", "science::geo"]
-repository = "https://github.com/vincbro/blaise"
 edition = "2024"
 rust-version = "1.95"
-keywords = ["transit", "gtfs", "routing-engine", "raptor", "public-transport"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/vincbro/blaise"
+readme = "README.md"
 
-
-[lib]
-# Skip libtest's bench harness, the benches use criterion.
-bench = false
-
-[[bin]]
-name = "blaise"
-path = "src/main.rs"
-bench = false
-
-[dependencies]
+# Internal crates require their exact sibling version, so a published blaise never
+# mixes with another release's blaise-core. Cargo can't inherit a version here, so
+# `just bump` rewrites these with [workspace.package]; a mismatch fails to build.
+[workspace.dependencies]
 anyhow = "1.0.104"
-gtfs-bin = { version = "0.2.0", path = "../gtfs-bin" }
+blaise-core = { path = "crates/blaise-core", version = "=0.3.0" }
+criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support"] }
+gtfs-bin-compiler = { version = "0.2.0", path = "../gtfs-bin/crates/gtfs-bin-compiler" }
+gtfs-bin-core = { version = "0.2.0", path = "../gtfs-bin/crates/gtfs-bin-core" }
+gtfs-rt = "0.5.0"
 jiff = "0.2.46"
 memmap2 = "0.9.10"
+proptest = { version = "1.12.0", default-features = false, features = ["std"] }
 rayon = "1.11.0"
+tempfile = "3.26.0"
 thiserror = "2.0.17"
 
-[dev-dependencies]
-criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support"] }
-gtfs-rt = "0.5.0"
-proptest = { version = "1.12.0", default-features = false, features = ["std"] }
-tempfile = "3.26.0"
-
-[lints.rust]
+[workspace.lints.rust]
 # Off-by-default rustc lints we want on.
 elided_lifetimes_in_paths = "warn"
 explicit_outlives_requirements = "warn"
@@ -60,13 +54,13 @@ unused_lifetimes = "warn"
 unused_macro_rules = "warn"
 unused_qualifications = "warn"
 
-[lints.rustdoc]
+[workspace.lints.rustdoc]
 all = { level = "warn", priority = -1 }
 
 # all, pedantic and cargo are on. restriction is opted into lint by lint
 # instead of as a group: the group holds lints that contradict each other and
 # grows with every toolchain.
-[lints.clippy]
+[workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
 cargo = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
@@ -128,8 +122,3 @@ strip = true
 inherits = "release"
 debug = "line-tables-only"
 strip = false
-
-# A route query timed forward and backward on a real network: `just bench`.
-[[bench]]
-name = "route"
-harness = false

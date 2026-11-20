@@ -4,14 +4,14 @@ mod common;
 
 #[cfg(test)]
 mod tests {
-    use blaise::{
+    use blaise_core::{
         Error,
         raptor::{
             itinerary::LegType,
             query::{Location, QueryLocation},
         },
     };
-    use gtfs_bin::{
+    use gtfs_bin_core::{
         consumer::Consumer,
         models::Coordinate,
         rt::{Realtime, RealtimeBuilder},
@@ -129,9 +129,16 @@ mod tests {
             time("08:30:00"),
             "arrives with the second vehicle"
         );
-        assert!(
-            matches!(missed, Err(Error::NoRoute)),
-            "arriving at B at 08:25 misses the 08:20 and nothing runs later"
+        let missed = missed.expect("the next day's 08:20 still runs");
+        assert_eq!(
+            missed.date,
+            date(),
+            "the journey starts on the day it was asked for"
+        );
+        assert_eq!(
+            missed.legs.last().expect("a leg").arrival_time.actual,
+            time("32:30:00"),
+            "arriving at B at 08:25 misses the 08:20, so the second vehicle is the one at 08:20 the next day"
         );
     }
 
@@ -166,9 +173,16 @@ mod tests {
         );
 
         assert!(on_time.is_ok(), "08:20 is in time for 08:22");
-        assert!(
-            matches!(late_trip, Err(Error::NoRoute)),
-            "08:25 is too late for 08:22"
+        let earlier_day = late_trip.expect("the day before still runs");
+        assert_eq!(
+            earlier_day.date.0 + 1,
+            date().0,
+            "08:25 is too late for 08:22, so the journey is the day before"
+        );
+        assert_eq!(
+            earlier_day.legs.last().expect("a leg").arrival_time.actual,
+            time("08:20:00"),
+            "and the delay does not follow it there"
         );
         let arrival = late_but_enough
             .expect("08:25 is in time for 08:27")

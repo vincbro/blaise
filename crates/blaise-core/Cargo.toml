@@ -1,0 +1,38 @@
+[package]
+name = "blaise-core"
+description = "A fast, local-first transit router over a compiled GTFS file: RAPTOR with walking, transfers and GTFS-realtime delays."
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords = ["transit", "gtfs", "routing-engine", "raptor", "public-transport"]
+categories = ["algorithms", "science::geo"]
+
+[lib]
+# Skip libtest's bench harness, the benches use criterion.
+bench = false
+
+[dependencies]
+gtfs-bin-core.workspace = true
+jiff.workspace = true
+rayon.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+gtfs-bin-compiler.workspace = true
+gtfs-rt.workspace = true
+memmap2.workspace = true
+proptest.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true
+
+# A route query timed forward and backward on a real network: `just bench`.
+[[bench]]
+name = "route"
+harness = false

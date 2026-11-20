@@ -1,4 +1,4 @@
-use gtfs_bin::{
+use gtfs_bin_core::{
     consumer::Consumer,
     models::{Coordinate, Date, StopIndex, StopTime, Time},
     rt::Realtime,
@@ -7,7 +7,7 @@ use jiff::Zoned;
 
 use crate::{
     Result,
-    raptor::{self, LiveTime, itinerary::Itinerary, state::State},
+    raptor::{self, Day, LiveTime, itinerary::Itinerary, state::State},
     spatial::SpatialGrid,
 };
 
@@ -81,6 +81,18 @@ impl TimeDirection {
             Self::Arrival(time) | Self::Departure(time) => time,
         }
     }
+
+    /// The same direction with its time moved from the query's date to the search clock, which
+    /// starts a day earlier.
+    #[must_use]
+    pub(crate) fn on_search_clock(self) -> Self {
+        match self {
+            Self::Arrival(time) => Self::Arrival(Time(time.0.saturating_add(Day::QUERY.shift()))),
+            Self::Departure(time) => {
+                Self::Departure(Time(time.0.saturating_add(Day::QUERY.shift())))
+            }
+        }
+    }
 }
 
 /// A journey to plan.
@@ -147,7 +159,9 @@ impl<'a> RaptorQuery<'a> {
         self
     }
 
-    /// Plans on live times. A `Realtime` made for another service date than the query's is ignored.
+    /// Plans on live times. A `Realtime` made for a service date applies to the trips of that
+    /// date, which can be the day before the query's, its own or the day after. One made without
+    /// a date applies to the query's.
     #[must_use]
     pub const fn with_realtime(mut self, realtime: &'a Realtime) -> Self {
         self.realtime = Some(realtime);
@@ -160,27 +174,39 @@ impl<'a> RaptorQuery<'a> {
         matches!(self.time_direction, TimeDirection::Arrival(_))
     }
 
-    /// The arrival at a stop time, scheduled and expected, or `None` if the vehicle skips the stop,
-    /// the trip is canceled, or the stop has no arrival.
+    /// The service date a trip on `day` runs on, or `None` before the first date.
     #[must_use]
-    pub(crate) fn arrival(&self, stop_time: &StopTime) -> Option<LiveTime> {
+    pub(crate) fn service_date(&self, day: Day) -> Option<Date> {
+        let day_of_query = u32::from(day.offset());
+        self.date
+            .0
+            .checked_add(day_of_query)?
+            .checked_sub(1)
+            .map(Date)
+    }
+
+    /// The arrival at a stop time of a trip on `day`, scheduled and expected, on the search
+    /// clock, or `None` if the vehicle skips the stop, the trip is canceled, or the stop has no
+    /// arrival.
+    #[must_use]
+    pub(crate) fn arrival(&self, stop_time: &StopTime, day: Day) -> Option<LiveTime> {
         let scheduled = stop_time.arrival_time.as_option()?;
-        let actual = match self.live() {
+        let actual = match self.live(day) {
             Some(realtime) => realtime.arrival_time(stop_time)?,
             None => scheduled,
         };
-        Some(LiveTime { scheduled, actual })
+        Some(LiveTime::new(scheduled, actual).shifted(day.shift()))
     }
 
-    /// The departure from a stop time, like [`Self::arrival`].
+    /// The departure from a stop time of a trip on `day`, like [`Self::arrival`].
     #[must_use]
-    pub(crate) fn departure(&self, stop_time: &StopTime) -> Option<LiveTime> {
+    pub(crate) fn departure(&self, stop_time: &StopTime, day: Day) -> Option<LiveTime> {
         let scheduled = stop_time.departure_time.as_option()?;
-        let actual = match self.live() {
+        let actual = match self.live(day) {
             Some(realtime) => realtime.departure_time(stop_time)?,
             None => scheduled,
         };
-        Some(LiveTime { scheduled, actual })
+        Some(LiveTime::new(scheduled, actual).shifted(day.shift()))
     }
 
     /// Plans the journey.
@@ -197,9 +223,14 @@ impl<'a> RaptorQuery<'a> {
         raptor::solve(self, consumer, spatial, state)
     }
 
-    fn live(&self) -> Option<&'a Realtime> {
+    /// The live data for trips on `day`. A `Realtime` made for a service date describes that date
+    /// only, and one made without a date describes the query's.
+    fn live(&self, day: Day) -> Option<&'a Realtime> {
         self.realtime
-            .filter(|realtime| realtime.service_date().is_none_or(|date| date == self.date))
+            .filter(|realtime| match realtime.service_date() {
+                Some(date) => self.service_date(day) == Some(date),
+                None => day == Day::QUERY,
+            })
     }
 }
 

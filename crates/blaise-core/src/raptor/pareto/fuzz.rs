@@ -1,4 +1,4 @@
-use gtfs_bin::models::Time;
+use gtfs_bin_core::models::Time;
 use proptest::{collection::vec, prelude::*};
 
 use super::{ParetoFront, ParetoLabel};
