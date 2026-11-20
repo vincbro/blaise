@@ -1,0 +1,38 @@
+# cargo-deny: `just deps`. Checks the dependency graph for known
+# vulnerabilities, licenses that don't fit MIT OR Apache-2.0, duplicate
+# versions, and crates from anywhere but crates.io.
+
+[graph]
+all-features = true
+
+[advisories]
+# Vulnerable, unmaintained, unsound or yanked crates fail. To accept one, add
+# its RUSTSEC id here with a reason.
+ignore = []
+
+[licenses]
+# Permissive licenses only, so blaise stays shippable under MIT.
+allow = [
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "MIT",
+  "Unicode-3.0",
+  "Zlib",
+]
+confidence-threshold = 0.8
+# The list is policy, not inventory: allowed before any dependency needs it.
+unused-allowed-license = "allow"
+
+[bans]
+# Two versions of one crate in the tree: shown, not failed. We don't control
+# our dependencies' trees, but each one is worth a look.
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-git = "deny"
+unknown-registry = "deny"

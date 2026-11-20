@@ -51,25 +51,64 @@ cargo add blaise
 
 ## Quick Start
 
+blaise plans on a network compiled by [gtfs-bin](https://github.com/vincbro/gtfs-bin). Compile your feed once:
+
+```bash
+gtfs-bin -i gtfs.zip -o network.gtfs
+```
+
+Then map the file and ask for a route:
+
 ```rust
-use blaise::gtfs::{GtfsReader};
-use blaise::repository::Repository;
-use blaise::raptor::{Raptor, Location};
-use blaise::shared::{time::Time, geo::Coordinate};
+use std::fs::File;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let reader = GtfsReader::new().from_zip("gtfs_data.zip")?;
-    let repo = Repository::new().load_gtfs(reader)?;
+use blaise::{
+    raptor::{
+        query::{QueryLocation, RaptorQuery},
+        state::State,
+    },
+    spatial::SpatialGrid,
+};
+use gtfs_bin::{
+    consumer::Consumer,
+    models::{Coordinate, Time},
+};
+use memmap2::Mmap;
 
-    let from = Location::Stop("STOP_ID_1".into());
-    let to = Location::Coordinate(Coordinate { latitude: 59.3, longitude: 18.0 });
-    let departure = Time::from_hms("16:00:00")?;
+fn main() -> anyhow::Result<()> {
+    let file = File::open("network.gtfs")?;
+    // SAFETY: the file is only read, and nothing modifies it while it is mapped.
+    let mmap = unsafe { Mmap::map(&file)? };
+    let consumer = Consumer::new(&mmap)?;
+    let spatial = SpatialGrid::new(&consumer);
+    let mut state = State::new(&consumer);
 
-    let raptor = Raptor::new(&repo, from, to).departure_at(departure);
-    let itinerary = raptor.solve()?;
+    let from = QueryLocation::Coordinate(Coordinate::new(59.58, 17.89));
+    let to = QueryLocation::Coordinate(Coordinate::new(59.34, 18.04));
+    let departure = Time::from_hms("16:00:00").expect("a valid time");
+
+    let itinerary = RaptorQuery::new(from, to)
+        .with_departure(departure)
+        .solve(&consumer, &spatial, &mut state)?;
     println!("Found a path with {} legs!", itinerary.legs.len());
     Ok(())
 }
+```
+
+`State` and `SpatialGrid` are built once and reused for every query.
+
+### Realtime
+
+Apply GTFS-realtime feeds with gtfs-bin and hand the result to the query. Delays move the times, canceled trips and skipped stops are not used, and every time in the itinerary carries both the scheduled and the expected value:
+
+```rust
+use gtfs_bin::rt::{self, Realtime, RealtimeBuilder};
+
+let mut realtime = Realtime::for_service_date(&consumer, query.date);
+let message = rt::decode_feed(&std::fs::read("TripUpdates.pb")?)?;
+RealtimeBuilder::new(&consumer).apply([message].into_iter(), &mut realtime);
+
+let itinerary = query.with_realtime(&realtime).solve(&consumer, &spatial, &mut state)?;
 ```
 
 ## Roadmap
@@ -77,7 +116,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 - [x] Web server crate with docker image
 - [x] Multi-threaded routing (Switching to RAPTOR)
 - [x] Arrival and departure time constraints for routing
-- [ ] Real-time data updates (GTFS-RT)
+- [x] Real-time data updates (GTFS-RT)
 - [ ] Advanced date and holiday filtering
 
 ## Refrences

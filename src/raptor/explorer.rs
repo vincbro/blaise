@@ -1,284 +1,504 @@
+use gtfs_bin::{
+    consumer::Consumer,
+    models::{
+        BoardingRule, Duration, Optional, StopIndex, StopTime, Time, TripIndex, TripPatternIndex,
+    },
+};
+use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
+
 use crate::{
     raptor::{
-        Allocator, LazyBuffer, Parent, Update, find_earliest_trip, find_latest_trip,
-        get_arrival_time, get_departure_time, time_to_walk, transfer_duration,
+        self, LiveTime, PatternPosition,
+        pareto::{self, ParetoLabel},
+        query::RaptorQuery,
+        state::State,
+        update::{Parent, StepKind, Update},
     },
-    repository::{Repository, Trip},
-    shared::time,
+    spatial::SpatialGrid,
 };
-use rayon::prelude::*;
 
-/// Explores all active routes and add any updates to the update buffer in the allocator.
-/// This is the core of the k-th round: it propagates travel times by one additional "hop"
-/// using only transit routes.
-pub fn explore_routes(repository: &Repository, allocator: &mut Allocator) {
-    let updates = allocator
-        .active_mask
-        .iter_ones()
-        .par_bridge()
-        .map_init(
-            || LazyBuffer::new(32),
-            |buffer, route_idx| {
-                let p_idx = allocator.active[route_idx];
+/// The updates one worker thread expects to find, so its buffer rarely grows.
+const BUFFER_CAPACITY: usize = 512;
 
-                let route = &repository.raptor_routes[route_idx];
-                let mut active_trip: Option<&Trip> = None;
-                let mut boarding_stop: u32 = u32::MAX;
-                let mut boarding_p: usize = usize::MAX;
-
-                // Optimization: We only start scanning from the earliest stop that was
-                // updated in the previous round (p_idx) to avoid redundant checks.
-                for i in p_idx as usize..route.stops.len() {
-                    let stop_idx = route.stops[i];
-                    // PART A: Update arrival times
-                    // If we are currently "on" a trip, check if it reaches this stop
-                    // earlier than any path discovered in previous rounds.
-                    if let Some(trip) = active_trip
-                        && let arrival_time = get_arrival_time(repository, trip.index, i)
-                        && arrival_time < allocator.tau_star[stop_idx as usize].unwrap_or(time::MAX)
-                        && arrival_time < allocator.target.tau_star
-                    {
-                        buffer.push(Update::new(
-                            stop_idx,
-                            arrival_time,
-                            Parent::new_transit(
-                                boarding_stop.into(),
-                                stop_idx.into(),
-                                trip.index,
-                                get_departure_time(repository, trip.index, boarding_p),
-                                arrival_time,
-                            ),
-                        ));
-                    }
-
-                    // PART B: Trip Hopping
-                    // Check if we can catch an even earlier trip. This happens if the
-                    // arrival time at this stop from the PREVIOUS round is earlier
-                    // than the departure of a trip on the current route.
-                    let prev_label = allocator.prev_labels[stop_idx as usize].unwrap_or(time::MAX);
-                    let current_trip_dep = active_trip
-                        .map(|t| get_departure_time(repository, t.index, i))
-                        .unwrap_or(time::MAX);
-
-                    if prev_label <= current_trip_dep
-                        && let Some(earlier_trip) =
-                            find_earliest_trip(repository, route, i, prev_label)
-                    {
-                        // We found a better trip to board (or a fresh start for this route).
-                        active_trip = Some(earlier_trip);
-                        boarding_stop = stop_idx;
-                        boarding_p = i;
-                    }
-                }
-                buffer.swap()
-            },
-        )
-        .flatten();
-    allocator.updates.par_extend(updates);
+/// A trip being ridden while a pattern is scanned, with the position it was boarded at going
+/// forward or left at going back, and what it cost to get there.
+#[derive(Debug, Clone, Copy)]
+struct Ride {
+    trip: TripIndex,
+    position: PatternPosition,
+    cost: f64,
 }
 
-/// Reverse exploration for Latest Departure Time (LDT) queries.
-pub fn explore_routes_reverse(repository: &Repository, allocator: &mut Allocator) {
-    let updates = allocator
-        .active_mask
-        .iter_ones()
-        .par_bridge()
-        .map_init(
-            || LazyBuffer::new(32),
-            |buffer, route_idx| {
-                let p_idx = allocator.active[route_idx];
-
-                let route = &repository.raptor_routes[route_idx];
-                let mut active_trip: Option<&Trip> = None;
-                let mut alighting_stop: u32 = u32::MAX;
-                let mut alighting_p: usize = usize::MAX;
-
-                // To find the latest departure, we scan backwards from the destination.
-                // We want to "catch" a trip as late as possible to maximize our start time.
-                for i in (0..=p_idx).rev() {
-                    let stop_idx = route.stops[i as usize];
-
-                    // PART A: If we have an active trip, can we leave this stop LATER
-                    // than previously known and still catch it?
-                    if let Some(trip) = active_trip {
-                        let dep_time = get_departure_time(repository, trip.index, i as usize);
-
-                        if dep_time > allocator.tau_star[stop_idx as usize].unwrap_or(time::MIN) {
-                            buffer.push(Update::new(
-                                stop_idx,
-                                dep_time,
-                                Parent::new_transit(
-                                    (stop_idx).into(),
-                                    alighting_stop.into(),
-                                    trip.index,
-                                    dep_time,
-                                    get_arrival_time(repository, trip.index, alighting_p),
-                                ),
-                            ));
-                        }
-                    }
-
-                    // PART B: Look for a trip that arrives at this stop LATER than
-                    // our previous round's departure label, allowing us to shift our whole schedule later.
-                    let prev_label = allocator.prev_labels[stop_idx as usize].unwrap_or(time::MIN);
-                    let trip_arrival = active_trip
-                        .map(|t| get_arrival_time(repository, t.index, i as usize))
-                        .unwrap_or(time::MIN);
-
-                    // If this stop has a departure label LATER than our current trip's arrival,
-                    // find a trip that arrives even later (but still before the label)
-                    if prev_label >= trip_arrival
-                        && let Some(later_trip) =
-                            find_latest_trip(repository, route, i as usize, prev_label)
-                    {
-                        active_trip = Some(later_trip);
-                        alighting_stop = stop_idx;
-                        alighting_p = i as usize;
-                    }
-                }
-                buffer.swap()
-            },
-        )
-        .flatten();
-    allocator.updates.par_extend(updates);
+/// A move from the stop a label is at to another stop on foot or by a listed transfer.
+#[derive(Debug, Clone, Copy)]
+struct Hop {
+    from: StopIndex,
+    to: StopIndex,
+    seconds: u32,
+    penalty: f64,
+    kind: StepKind,
 }
 
-/// Handles footpaths and transfers between stops.
-/// In RAPTOR, transfers are processed after route exploration to ensure that
-/// round k transit results can be used as the starting point for round k+1.
-pub fn explore_transfers(allow_walk: bool, repository: &Repository, allocator: &mut Allocator) {
-    let updates = allocator
-        .marked_stops
-        .iter_ones()
-        .par_bridge()
-        .map_init(
-            || LazyBuffer::<Update>::new(32),
-            |buffer, stop_idx| {
-                // All the possible transfers
-                repository.stop_to_transfers[stop_idx]
-                    .iter()
-                    .for_each(|transfer_idx| {
-                        let transfer = &repository.transfers[*transfer_idx as usize];
-                        let departure_time = allocator.curr_labels[stop_idx].unwrap_or(time::MAX);
-                        let arrival_time = departure_time + transfer_duration(repository, transfer);
-                        if arrival_time
-                            < allocator.tau_star[transfer.to_stop_idx as usize].unwrap_or(time::MAX)
-                            && arrival_time < allocator.target.tau_star
-                        {
-                            buffer.push(Update::new(
-                                transfer.to_stop_idx,
-                                arrival_time,
-                                Parent::new_transfer(
-                                    (stop_idx as u32).into(),
-                                    transfer.to_stop_idx.into(),
-                                    departure_time,
-                                    arrival_time,
-                                ),
-                            ));
-                        }
-                    });
-
-                if allow_walk {
-                    let current_stop = &repository.stops[stop_idx];
-                    repository.stop_to_walk_stop[stop_idx]
-                        .iter()
-                        .for_each(|next_stop_idx| {
-                            let next_stop = &repository.stops[*next_stop_idx as usize];
-                            let walking_distance = current_stop
-                                .coordinate
-                                .network_distance(&next_stop.coordinate);
-                            let departure_time =
-                                allocator.curr_labels[stop_idx].unwrap_or(time::MAX);
-                            let arrival_time = departure_time + time_to_walk(walking_distance);
-                            if arrival_time
-                                < allocator.tau_star[next_stop.index as usize].unwrap_or(time::MAX)
-                                && arrival_time < allocator.target.tau_star
-                            {
-                                buffer.push(Update::new(
-                                    next_stop.index,
-                                    arrival_time,
-                                    Parent::new_walk(
-                                        (stop_idx as u32).into(),
-                                        next_stop.index.into(),
-                                        departure_time,
-                                        arrival_time,
-                                    ),
-                                ));
-                            }
-                        });
-                }
-                buffer.swap()
-            },
-        )
-        .flatten();
-    allocator.updates.par_extend(updates);
+/// Finds the labels one more round of the search reaches, from what the last round found.
+#[derive(Debug)]
+pub(super) struct Explorer<'a> {
+    query: &'a RaptorQuery<'a>,
+    consumer: &'a Consumer<'a>,
+    spatial: &'a SpatialGrid,
 }
 
-pub fn explore_transfers_reverse(
-    allow_walk: bool,
-    repository: &Repository,
-    allocator: &mut Allocator,
-) {
-    let updates = allocator
-        .marked_stops
-        .iter_ones()
-        .par_bridge()
-        .map_init(
-            || LazyBuffer::<Update>::new(32),
-            |buffer, stop_idx| {
-                // All the possible transfers
-                repository.stop_to_transfers[stop_idx]
-                    .iter()
-                    .for_each(|transfer_idx| {
-                        let transfer = &repository.transfers[*transfer_idx as usize];
-                        let arrival_time = allocator.curr_labels[stop_idx].unwrap_or(time::MIN);
-                        let departure_time = arrival_time - transfer_duration(repository, transfer);
-                        if departure_time
-                            > allocator.tau_star[transfer.to_stop_idx as usize].unwrap_or(time::MIN)
-                        {
-                            buffer.push(Update::new(
-                                transfer.to_stop_idx,
-                                departure_time,
-                                Parent::new_transfer(
-                                    transfer.to_stop_idx.into(),
-                                    (stop_idx as u32).into(),
-                                    departure_time,
-                                    arrival_time,
-                                ),
-                            ));
-                        }
-                    });
+impl<'a> Explorer<'a> {
+    pub(super) const fn new(
+        query: &'a RaptorQuery<'a>,
+        consumer: &'a Consumer<'a>,
+        spatial: &'a SpatialGrid,
+    ) -> Self {
+        Self {
+            query,
+            consumer,
+            spatial,
+        }
+    }
 
-                if allow_walk {
-                    let current_stop = &repository.stops[stop_idx];
-                    repository.stop_to_walk_stop[stop_idx]
-                        .iter()
-                        .for_each(|next_stop_idx| {
-                            let next_stop = &repository.stops[*next_stop_idx as usize];
-                            let walking_distance = current_stop
-                                .coordinate
-                                .network_distance(&next_stop.coordinate);
-                            let arrival_time = allocator.curr_labels[stop_idx].unwrap_or(time::MIN);
-                            let departure_time = arrival_time - time_to_walk(walking_distance);
-                            if departure_time
-                                > allocator.tau_star[next_stop.index as usize].unwrap_or(time::MIN)
-                            {
-                                buffer.push(Update::new(
-                                    next_stop.index,
-                                    departure_time,
-                                    Parent::new_walk(
-                                        next_stop.index.into(),
-                                        (stop_idx as u32).into(),
-                                        departure_time,
-                                        arrival_time,
-                                    ),
-                                ));
-                            }
-                        });
-                }
-                buffer.swap()
+    /// Rides every trip pattern from where the last round marked a stop on it.
+    pub(super) fn trip_patterns(&self, state: &State) -> Vec<Update> {
+        state
+            .active_trip_patterns()
+            .par_iter()
+            .copied()
+            .enumerate()
+            .filter_map(|(pattern, start)| Some((pattern, start.as_option()?)))
+            .fold(
+                || Vec::with_capacity(BUFFER_CAPACITY),
+                |mut buffer, (pattern, start)| {
+                    let pattern = TripPatternIndex::from(pattern);
+                    if self.query.is_arrival() {
+                        self.scan_back(state, pattern, start, &mut buffer);
+                    } else {
+                        self.scan_forward(state, pattern, start, &mut buffer);
+                    }
+                    buffer
+                },
+            )
+            .reduce(Vec::new, merge_buffers)
+    }
+
+    /// Moves from every stop the last step marked to the stops a transfer or a walk reaches.
+    pub(super) fn transfers(&self, state: &State) -> Vec<Update> {
+        state
+            .marked_stops()
+            .par_iter()
+            .enumerate()
+            .filter(|&(_, &marked)| marked)
+            .fold(
+                || Vec::with_capacity(BUFFER_CAPACITY),
+                |mut buffer, (stop, _)| {
+                    self.transfers_from(state, StopIndex::from(stop), &mut buffer);
+                    buffer
+                },
+            )
+            .reduce(Vec::new, merge_buffers)
+    }
+
+    /// Moves from one stop with every label it has this round.
+    fn transfers_from(&self, state: &State, stop: StopIndex, buffer: &mut Vec<Update>) {
+        for label in state.current_labels(stop).iter() {
+            if self.query.is_arrival() {
+                self.transfers_back(state, stop, label, buffer);
+            } else {
+                self.transfers_forward(state, stop, label, buffer);
+            }
+        }
+    }
+
+    /// Rides forward along a pattern, boarding wherever a label gets to a trip sooner than the one
+    /// already ridden, and emitting a label at every stop it can alight at.
+    fn scan_forward(
+        &self,
+        state: &State,
+        pattern: TripPatternIndex,
+        start: PatternPosition,
+        buffer: &mut Vec<Update>,
+    ) {
+        let stops = self.consumer.stop_sequence_by_trip_pattern(pattern);
+        let mut ride: Option<Ride> = None;
+        for (index, &stop) in stops.iter().enumerate().skip(start.as_usize()) {
+            let position = PatternPosition::from(index);
+            if let Some(ride) = ride {
+                self.alight(state, ride, stop, position, buffer);
+            }
+            for label in state.previous_labels(stop).iter() {
+                ride = self.board(ride, label, pattern, position).or(ride);
+            }
+        }
+    }
+
+    /// Rides back along a pattern, the mirror of [`Self::scan_forward`]: it picks the latest trip
+    /// that gets to a label in time, and emits a label at every stop it can be boarded at.
+    fn scan_back(
+        &self,
+        state: &State,
+        pattern: TripPatternIndex,
+        start: PatternPosition,
+        buffer: &mut Vec<Update>,
+    ) {
+        let stops = self.consumer.stop_sequence_by_trip_pattern(pattern);
+        let mut ride: Option<Ride> = None;
+        for (index, &stop) in stops[..=start.as_usize()].iter().enumerate().rev() {
+            let position = PatternPosition::from(index);
+            if let Some(ride) = ride {
+                self.board_back(state, ride, stop, position, buffer);
+            }
+            for label in state.previous_labels(stop).iter() {
+                ride = self.alight_back(ride, label, pattern, position).or(ride);
+            }
+        }
+    }
+
+    /// Emits the label for getting off `ride` at `stop`.
+    fn alight(
+        &self,
+        state: &State,
+        ride: Ride,
+        stop: StopIndex,
+        position: PatternPosition,
+        buffer: &mut Vec<Update>,
+    ) {
+        let stop_time = self.stop_time(ride.trip, position);
+        if stop_time.drop_off == BoardingRule::NOT_AVAILABLE {
+            return;
+        }
+        let Some(arrival) = self.query.arrival(stop_time) else {
+            return;
+        };
+        if state.is_dominated_at(stop, arrival.actual, pareto::narrow_cost(ride.cost), false) {
+            return;
+        }
+        let Some(departure) = self.departure(ride.trip, ride.position) else {
+            return;
+        };
+
+        // A feed with delays can put a stop's arrival before the departure it follows.
+        let ride_time = f64::from(arrival.actual.0.saturating_sub(departure.actual.0));
+        let cost = pareto::narrow_cost(ride.cost + ride_time * self.query.transit_penalty);
+        if state.is_dominated(stop, arrival.actual, cost, false) {
+            return;
+        }
+        buffer.push(Update::new(
+            stop,
+            arrival.actual,
+            cost,
+            Parent::Transit {
+                boarding_position: ride.position,
+                alighting_position: position,
+                trip: ride.trip,
+                departure_time: departure,
+                arrival_time: arrival,
             },
-        )
-        .flatten();
-    allocator.updates.par_extend(updates);
+        ));
+    }
+
+    /// Emits the label for getting on `ride` at `stop`, when searching back from an arrival.
+    fn board_back(
+        &self,
+        state: &State,
+        ride: Ride,
+        stop: StopIndex,
+        position: PatternPosition,
+        buffer: &mut Vec<Update>,
+    ) {
+        let stop_time = self.stop_time(ride.trip, position);
+        if stop_time.pickup == BoardingRule::NOT_AVAILABLE {
+            return;
+        }
+        let Some(departure) = self.query.departure(stop_time) else {
+            return;
+        };
+        if state.is_dominated_at(stop, departure.actual, pareto::narrow_cost(ride.cost), true) {
+            return;
+        }
+        let Some(arrival) = self.arrival(ride.trip, ride.position) else {
+            return;
+        };
+
+        // A feed with delays can put a stop's arrival before the departure it follows.
+        let ride_time = f64::from(arrival.actual.0.saturating_sub(departure.actual.0));
+        let cost = pareto::narrow_cost(ride.cost + ride_time * self.query.transit_penalty);
+        if state.is_dominated(stop, departure.actual, cost, true) {
+            return;
+        }
+        buffer.push(Update::new(
+            stop,
+            departure.actual,
+            cost,
+            Parent::Transit {
+                boarding_position: position,
+                alighting_position: ride.position,
+                trip: ride.trip,
+                departure_time: departure,
+                arrival_time: arrival,
+            },
+        ));
+    }
+
+    /// The ride a label leads to if it gets to a trip sooner than the one already ridden.
+    fn board(
+        &self,
+        ride: Option<Ride>,
+        label: ParetoLabel,
+        pattern: TripPatternIndex,
+        position: PatternPosition,
+    ) -> Option<Ride> {
+        let current_departure = ride
+            .and_then(|ride| self.departure(ride.trip, position))
+            .map_or(Time(u32::MAX), |departure| departure.actual);
+        if label.time >= current_departure {
+            return None;
+        }
+
+        let trip = self.find_earliest_trip(pattern, position, label.time)?;
+        let candidate = self.departure(trip, position)?;
+        let wait = f64::from(candidate.actual.0 - label.time.0);
+        let cost = f64::from(label.cost) + wait * self.query.transit_penalty;
+
+        // An earlier departure wins, and so does a cheaper way to the same one.
+        let better = candidate.actual < current_departure
+            || (candidate.actual == current_departure
+                && cost < ride.map_or(f64::MAX, |ride| ride.cost));
+        better.then_some(Ride {
+            trip,
+            position,
+            cost,
+        })
+    }
+
+    /// The ride a label leads to if it leaves a trip later than the one already ridden.
+    fn alight_back(
+        &self,
+        ride: Option<Ride>,
+        label: ParetoLabel,
+        pattern: TripPatternIndex,
+        position: PatternPosition,
+    ) -> Option<Ride> {
+        let current_arrival = ride
+            .and_then(|ride| self.arrival(ride.trip, position))
+            .map_or(Time(0), |arrival| arrival.actual);
+        if label.time < current_arrival {
+            return None;
+        }
+
+        let trip = self.find_latest_trip(pattern, position, label.time)?;
+        let candidate = self.arrival(trip, position)?;
+        let wait = f64::from(label.time.0 - candidate.actual.0);
+        let cost = f64::from(label.cost) + wait * self.query.transit_penalty;
+
+        let better = candidate.actual > current_arrival
+            || ride.is_none_or(|ride| candidate.actual == current_arrival && cost < ride.cost);
+        better.then_some(Ride {
+            trip,
+            position,
+            cost,
+        })
+    }
+
+    /// The first trip of the pattern a passenger ready at `ready_time` can board at `position`.
+    fn find_earliest_trip(
+        &self,
+        pattern: TripPatternIndex,
+        position: PatternPosition,
+        ready_time: Time,
+    ) -> Option<TripIndex> {
+        self.consumer
+            .iter_trips_in_trip_pattern(pattern)
+            .filter(|trip| {
+                self.consumer
+                    .is_service_active(trip.service_index, self.query.date)
+            })
+            .filter_map(|trip| {
+                let stop_time = self.stop_time(trip.index, position);
+                if stop_time.pickup == BoardingRule::NOT_AVAILABLE {
+                    return None;
+                }
+                let departure = self.query.departure(stop_time)?;
+                Some((trip.index, departure.actual))
+            })
+            .filter(|&(_, departure)| departure >= ready_time)
+            .min_by_key(|&(_, departure)| departure)
+            .map(|(trip, _)| trip)
+    }
+
+    /// The last trip of the pattern that gets to `position` by `ready_time` and lets passengers
+    /// off.
+    fn find_latest_trip(
+        &self,
+        pattern: TripPatternIndex,
+        position: PatternPosition,
+        ready_time: Time,
+    ) -> Option<TripIndex> {
+        self.consumer
+            .iter_trips_in_trip_pattern(pattern)
+            .filter(|trip| {
+                self.consumer
+                    .is_service_active(trip.service_index, self.query.date)
+            })
+            .filter_map(|trip| {
+                let stop_time = self.stop_time(trip.index, position);
+                if stop_time.drop_off == BoardingRule::NOT_AVAILABLE {
+                    return None;
+                }
+                let arrival = self.query.arrival(stop_time)?;
+                Some((trip.index, arrival.actual))
+            })
+            .filter(|&(_, arrival)| arrival <= ready_time)
+            .max_by_key(|&(_, arrival)| arrival)
+            .map(|(trip, _)| trip)
+    }
+
+    fn stop_time(&self, trip: TripIndex, position: PatternPosition) -> &'a StopTime {
+        &self.consumer.stop_times_by_trip(trip)[position.as_usize()]
+    }
+
+    /// The arrival of a trip at a position, if the vehicle serves it.
+    fn arrival(&self, trip: TripIndex, position: PatternPosition) -> Option<LiveTime> {
+        self.query.arrival(self.stop_time(trip, position))
+    }
+
+    /// The departure of a trip from a position, if the vehicle serves it.
+    fn departure(&self, trip: TripIndex, position: PatternPosition) -> Option<LiveTime> {
+        self.query.departure(self.stop_time(trip, position))
+    }
+
+    fn transfers_forward(
+        &self,
+        state: &State,
+        stop: StopIndex,
+        label: ParetoLabel,
+        buffer: &mut Vec<Update>,
+    ) {
+        for transfer in self.consumer.outbound_transfers_by_stop(stop) {
+            let hop = Hop {
+                from: stop,
+                to: transfer.to_stop_index,
+                seconds: self.transfer_seconds(
+                    transfer.from_stop_index,
+                    transfer.to_stop_index,
+                    transfer.min_transfer_time,
+                ),
+                penalty: self.query.transfer_penalty,
+                kind: StepKind::Transfer,
+            };
+            relax_forward(state, buffer, label, hop);
+        }
+        for hop in self.walks(stop) {
+            relax_forward(state, buffer, label, hop);
+        }
+    }
+
+    fn transfers_back(
+        &self,
+        state: &State,
+        stop: StopIndex,
+        label: ParetoLabel,
+        buffer: &mut Vec<Update>,
+    ) {
+        for transfer in self.consumer.iter_inbound_transfers_by_stop(stop) {
+            let hop = Hop {
+                from: stop,
+                to: transfer.from_stop_index,
+                seconds: self.transfer_seconds(
+                    transfer.from_stop_index,
+                    transfer.to_stop_index,
+                    transfer.min_transfer_time,
+                ),
+                penalty: self.query.transfer_penalty,
+                kind: StepKind::Transfer,
+            };
+            relax_back(state, buffer, label, hop);
+        }
+        for hop in self.walks(stop) {
+            relax_back(state, buffer, label, hop);
+        }
+    }
+
+    /// The walks from a stop to the stops near it.
+    fn walks(&self, stop: StopIndex) -> impl Iterator<Item = Hop> + 'a {
+        let position = self.consumer.stop(stop).coordinate.as_option();
+        let (consumer, spatial, radius) = (self.consumer, self.spatial, self.query.search_radius);
+        let penalty = self.query.walk_penalty;
+        position.into_iter().flat_map(move |position| {
+            raptor::walkable_stops(consumer, spatial, position, radius).map(move |(to, walk)| Hop {
+                from: stop,
+                to,
+                seconds: walk.0,
+                penalty,
+                kind: StepKind::Walk,
+            })
+        })
+    }
+
+    /// The time a transfer takes: the feed's minimum, or the walk between the stops when it gives
+    /// none.
+    fn transfer_seconds(&self, from: StopIndex, to: StopIndex, minimum: Optional<Duration>) -> u32 {
+        let seconds = minimum.as_option().unwrap_or(Duration(0)).0;
+        if seconds != 0 {
+            return seconds;
+        }
+        let from = self.consumer.stop(from).coordinate.as_option();
+        let to = self.consumer.stop(to).coordinate.as_option();
+        from.zip(to)
+            .map_or(0, |(from, to)| raptor::time_to_walk(from, to).0)
+    }
+}
+
+/// Emits the label for arriving at `hop.to` after leaving `hop.from` at the label's time.
+fn relax_forward(state: &State, buffer: &mut Vec<Update>, label: ParetoLabel, hop: Hop) {
+    let arrival = label.time + Duration(hop.seconds);
+    let cost = pareto::narrow_cost(f64::from(label.cost) + f64::from(hop.seconds) * hop.penalty);
+    if state.is_dominated(hop.to, arrival, cost, false) {
+        return;
+    }
+    buffer.push(Update::new(
+        hop.to,
+        arrival,
+        cost,
+        Parent::step(
+            hop.kind,
+            hop.from,
+            LiveTime::scheduled_only(label.time),
+            LiveTime::scheduled_only(arrival),
+        ),
+    ));
+}
+
+/// Emits the label for leaving `hop.to` in time to be at `hop.from` at the label's time.
+fn relax_back(state: &State, buffer: &mut Vec<Update>, label: ParetoLabel, hop: Hop) {
+    let Some(departure) = label.time.0.checked_sub(hop.seconds).map(Time) else {
+        return;
+    };
+    let cost = pareto::narrow_cost(f64::from(label.cost) + f64::from(hop.seconds) * hop.penalty);
+    if state.is_dominated(hop.to, departure, cost, true) {
+        return;
+    }
+    buffer.push(Update::new(
+        hop.to,
+        departure,
+        cost,
+        Parent::step(
+            hop.kind,
+            hop.from,
+            LiveTime::scheduled_only(departure),
+            LiveTime::scheduled_only(label.time),
+        ),
+    ));
+}
+
+/// Joins two buffers by moving the shorter into the longer.
+fn merge_buffers<T>(mut first: Vec<T>, mut second: Vec<T>) -> Vec<T> {
+    if first.len() >= second.len() {
+        first.append(&mut second);
+        first
+    } else {
+        second.append(&mut first);
+        second
+    }
 }

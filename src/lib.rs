@@ -1,5 +1,10 @@
-pub mod gtfs;
-pub mod prelude;
+//! A transit router over a compiled GTFS file: `RAPTOR` with walking, transfers and optional
+//! GTFS-realtime delays, cancellations and skipped stops.
+
+mod error;
 pub mod raptor;
-pub mod repository;
-pub mod shared;
+pub mod spatial;
+#[cfg(test)]
+mod test_support;
+
+pub use error::{Error, Result};

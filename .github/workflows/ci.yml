@@ -1,0 +1,177 @@
+name: CI
+
+# `just check`, one step per check so a failure names what failed, plus a build
+# on rust-version so the minimum we claim stays true. Pushes to main run it too,
+# which keeps main's caches warm for the PRs that branch off it.
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: check
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: blaise
+    timeout-minutes: 20
+
+    steps:
+      # gtfs-bin is a path dependency (../gtfs-bin), so it is checked out next to this repository.
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: blaise
+
+      - name: Check out gtfs-bin
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: vincbro/gtfs-bin
+          path: gtfs-bin
+
+      # gtfs-rt's build script compiles its .proto files, which needs protoc.
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Set up tools
+        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: just,cargo-sort,taplo
+
+      # The toolchain pinned in rust-toolchain.toml, plus the nightly rustfmt
+      # pinned in the justfile, as on a laptop.
+      - name: Set up Rust
+        run: just toolchain
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          # A PR's first push often fails; its fix shouldn't start cold again.
+          workspaces: blaise
+          cache-on-failure: true
+
+      - name: Format
+        run: just fmt-check
+
+      - name: Clippy
+        run: just clippy
+
+      - name: Docs
+        run: just doc
+
+      - name: Test
+        run: just test
+
+  # Separate from check: a new advisory can fail this without the PR touching
+  # dependencies, and that shouldn't hide whether the code itself passes.
+  deps:
+    name: deps
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: blaise
+    timeout-minutes: 10
+
+    steps:
+      # gtfs-bin is a path dependency (../gtfs-bin), so it is checked out next to this repository.
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: blaise
+
+      - name: Check out gtfs-bin
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: vincbro/gtfs-bin
+          path: gtfs-bin
+
+      # gtfs-rt's build script compiles its .proto files, which needs protoc.
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Set up tools
+        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: just,cargo-machete,cargo-deny
+
+      - name: Set up Rust
+        run: just toolchain
+
+      - name: Dependencies
+        run: just deps
+
+  # code-standards/COMMITS.md S-COMMITS for every commit the PR adds, the same check as the
+  # commit-msg hook from `just hooks`.
+  commits:
+    name: commits
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Set up tools
+        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: just
+
+      - name: Commit messages
+        run: just commits ${{ github.event.pull_request.base.sha }}
+
+  msrv:
+    name: msrv
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: blaise
+    timeout-minutes: 20
+
+    steps:
+      # gtfs-bin is a path dependency (../gtfs-bin), so it is checked out next to this repository.
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: blaise
+
+      - name: Check out gtfs-bin
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: vincbro/gtfs-bin
+          path: gtfs-bin
+
+      # gtfs-rt's build script compiles its .proto files, which needs protoc.
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      # rust-version from the manifest, overriding rust-toolchain.toml.
+      - name: Set up Rust
+        run: |
+          msrv=$(sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)
+          rustup toolchain install "$msrv" --profile minimal
+          echo "RUSTUP_TOOLCHAIN=$msrv" >> "$GITHUB_ENV"
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: blaise
+          key: msrv
+
+      - name: Build
+        run: cargo build --all-targets --locked
