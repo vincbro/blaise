@@ -1,7 +1,7 @@
 //! How long a route query takes on a real network.
 //!
 //! It plans the same journeys a client would, forward from a departure and backward from an
-//! arrival, with the `State` and `SpatialGrid` reused between queries as a server would. Each
+//! arrival, with the `State` and `SpatialGrid` reused between queries. Each
 //! phase is its own group with one entry per route, and reports the time of a single query, the
 //! reset of the state before it included. Opening the network and building the grid are outside
 //! the timer.
