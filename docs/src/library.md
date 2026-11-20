@@ -4,102 +4,88 @@ Integrating **blaise** directly as a library allows you to build high-performanc
 
 ## Installation
 
-Add **blaise** to your project using Cargo:
-
 ```bash
-cargo add blaise
-
+cargo add blaise gtfs-bin memmap2
 ```
 
 ## Core Workflow
 
-Using the library typically involves four steps: loading raw GTFS data, building a searchable repository, configuring a router, and solving for an itinerary.
+Using the library involves four steps: compiling the feed once, mapping the compiled file, describing a journey, and solving for an itinerary.
 
-### 1. Loading GTFS Data
+### 1. Compiling GTFS Data
 
-First, you must parse your transit data. **blaise** supports loading directly from a standard GTFS `.zip` file:
+Blaise reads networks compiled by [gtfs-bin](https://github.com/vincbro/gtfs-bin). Compile a feed, a directory or a `.zip`, once:
 
-```rust
-use blaise::gtfs::Gtfs;
-
-let data = Gtfs::new().from_zip("transit_data.zip")?;
-
+```bash
+gtfs-bin -i transit_data.zip -o network.gtfs
 ```
 
-### 2. Building the Repository
+### 2. Mapping the Network
 
-The `Repository` is the optimized, in-memory data store used for routing. You hydrate it using the loaded GTFS data:
-
-```rust
-use blaise::repository::Repository;
-
-let repo = Repository::new().load_gtfs(data)?;
-
-```
-
-### 3. Initializing the Router
-
-To find a path, you create a `Raptor` instance. This requires a reference to your repository, a starting location, and a destination:
+The `Consumer` reads the compiled file straight from a memory map, so there is nothing to load. `SpatialGrid` finds stops near a coordinate, and `State` is the working memory of a search. Build both once and reuse them:
 
 ```rust
-use blaise::raptor::{Raptor, Location};
-use blaise::shared::geo::Coordinate;
-use blaise::shared::Time;
+use std::fs::File;
 
-let from = Location::Stop("STOP_ID_1".into());
-let to = Location::Coordinate(Coordinate { latitude: 59.3, longitude: 18.0 });
+use blaise::{raptor::state::State, spatial::SpatialGrid};
+use gtfs_bin::consumer::Consumer;
+use memmap2::Mmap;
 
-let raptor = Raptor::new(&repo, from, to)
-    .departure_at(Time::from_hms("16:00:00")?);
-// OR
-let raptor = repo::router(from, to)
-    .departure_at(Time::from_hms("16:00:00")?);
+let file = File::open("network.gtfs")?;
+// SAFETY: the file is only read, and nothing modifies it while it is mapped.
+let mmap = unsafe { Mmap::map(&file)? };
+let consumer = Consumer::new(&mmap)?;
+let spatial = SpatialGrid::new(&consumer);
+let mut state = State::new(&consumer);
 ```
+
+### 3. Describing the Journey
+
+A `RaptorQuery` takes an origin and a destination, each a stop, a list of stops or a coordinate:
+
+```rust
+use blaise::raptor::query::{QueryLocation, RaptorQuery};
+use gtfs_bin::models::{Coordinate, Time};
+
+let from = QueryLocation::Coordinate(Coordinate::new(59.58, 17.89));
+let to = QueryLocation::Coordinate(Coordinate::new(59.34, 18.04));
+
+let query = RaptorQuery::new(from, to).with_departure(Time::from_hms("16:00:00").expect("a valid time"));
+// Or plan back from the time you must arrive by:
+// let query = RaptorQuery::new(from, to).with_arrival(Time::from_hms("18:00:00").expect("a valid time"));
+```
+
+The query leaves now, today, unless you set `with_departure`, `with_arrival` or `with_date`.
 
 ### 4. Solving the Path
 
-Finally, call `solve()` to execute the RAPTOR algorithm and retrieve your itinerary:
-
 ```rust
-let itinerary = raptor.solve()?;
+let itinerary = query.solve(&consumer, &spatial, &mut state)?;
 println!("Found a path with {} legs!", itinerary.legs.len());
-
 ```
 
-## Full Example
+## Realtime
 
-Below is a complete implementation showing the library in action:
+Build a `Realtime` for the service date with gtfs-bin, apply the feeds you have, and attach it to the query. Canceled trips and skipped stops are never used, and a delayed vehicle is boarded at the time it is expected. Each time in the itinerary is a `LiveTime` with the `scheduled` and `actual` values.
 
 ```rust
-use blaise::gtfs::Gtfs;
-use blaise::repository::Repository;
-use blaise::raptor::{Raptor, Location};
-use blaise::shared::{time::Time, geo::Coordinate};
+use gtfs_bin::rt::{self, Realtime, RealtimeBuilder};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 1. Load data
-    let data = Gtfs::new().from_zip("transit_data.zip")?;
-    
-    // 2. Build optimized repository
-    let repo = Repository::new().load_gtfs(data)?;
+let mut realtime = Realtime::for_service_date(&consumer, query.date);
+let message = rt::decode_feed(&std::fs::read("TripUpdates.pb")?)?;
+RealtimeBuilder::new(&consumer).apply([message].into_iter(), &mut realtime);
 
-    // 3. Configure search parameters
-    let from = Location::Stop("STOP_ID_1".into());
-    let to = Location::Coordinate(Coordinate { latitude: 59.3, longitude: 18.0 });
-    let departure = Time::from_hms("16:00:00")?;
-
-    // 4. Solve using RAPTOR
-    let raptor = Raptor::new(&repo, from, to).departure_at(departure);
-    let itinerary = raptor.solve()?;
-
-    Ok(())
-}
-
+let itinerary = query
+    .with_realtime(&realtime)
+    .solve(&consumer, &spatial, &mut state)?;
 ```
+
+A `Realtime` made for another service date than the query's is ignored.
 
 ## Key Components
 
-* **`Repository`**: A read-only, flattened data structure optimized for CPU cache locality and parallel access.
-* **`Location`**: A flexible enum allowing you to route between specific Stops, Areas, or raw GPS Coordinates.
-* **`Time`**: A specialized type representing seconds since midnight, used for all schedule calculations.
-* **`Itinerary`**: The result of a successful search, containing a series of "Legs" (Walk or Transit) that describe the journey.
+* **`Consumer`**: A read-only, memory-mapped view of the compiled network.
+* **`SpatialGrid`**: Finds the stops near a coordinate.
+* **`State`**: The working memory of a search, reused between queries.
+* **`QueryLocation`**: A stop, a list of stops or a raw GPS coordinate.
+* **`Itinerary`**: The result of a search, a series of legs (walk, transfer or transit) that describe the journey.

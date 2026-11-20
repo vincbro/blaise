@@ -5,47 +5,131 @@ description = "A fast, local-first engine for GTFS transit data. Handles routing
 authors = ["Vincent Brodin <vincent.brodin21@gmail.com>"]
 license = "MIT"
 readme = "README.md"
+categories = ["algorithms", "science::geo"]
 repository = "https://github.com/vincbro/blaise"
 edition = "2024"
-keywords = [
-  "transit",
-  "gtfs",
-  "routing-engine",
-  "raptor",
-  "public-transport",
-]
+rust-version = "1.95"
+keywords = ["transit", "gtfs", "routing-engine", "raptor", "public-transport"]
 
-[[bench]]
-name = "short"
-harness = false
 
-[[bench]]
-name = "long"
-harness = false
+[lib]
+# Skip libtest's bench harness, the benches use criterion.
+bench = false
 
+[[bin]]
+name = "blaise"
+path = "src/main.rs"
+bench = false
 
 [dependencies]
-ahash = "0.8.12"
-chrono = "0.4.44"
-criterion = "0.8.2"
-dialoguer = {version = "0.12.0", features = ["fuzzy-select"] }
-# gtfs-bin = "0.1.3"
-gtfs-bin = { path = "../gtfs-bin" }
+anyhow = "1.0.104"
+gtfs-bin = { version = "0.2.0", path = "../gtfs-bin" }
+jiff = "0.2.46"
 memmap2 = "0.9.10"
 rayon = "1.11.0"
-rustc-hash = "2.1.2"
-smallvec = "1.15.1"
 thiserror = "2.0.17"
-tracing = "0.1.44"
+
+[dev-dependencies]
+criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support"] }
+gtfs-rt = "0.5.0"
+proptest = { version = "1.12.0", default-features = false, features = ["std"] }
+tempfile = "3.26.0"
+
+[lints.rust]
+# Off-by-default rustc lints we want on.
+elided_lifetimes_in_paths = "warn"
+explicit_outlives_requirements = "warn"
+future_incompatible = "warn"
+impl_trait_redundant_captures = "warn"
+let_underscore_drop = "warn"
+macro_use_extern_crate = "warn"
+meta_variable_misuse = "warn"
+missing_debug_implementations = "warn"
+redundant_lifetimes = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+trivial_casts = "warn"
+trivial_numeric_casts = "warn"
+unit_bindings = "warn"
+unnameable_types = "warn"                            # S-VISIBILITY
+unreachable_pub = "warn"                             # S-VISIBILITY
+# S-UNSAFE: each site opts in with #[allow(unsafe_code, reason = "...")].
+unsafe_code = "warn"
+unsafe_op_in_unsafe_fn = "warn"
+unused_import_braces = "warn"
+unused_lifetimes = "warn"
+unused_macro_rules = "warn"
+unused_qualifications = "warn"
+
+[lints.rustdoc]
+all = { level = "warn", priority = -1 }
+
+# all, pedantic and cargo are on. restriction is opted into lint by lint
+# instead of as a group: the group holds lints that contradict each other and
+# grows with every toolchain.
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+
+# Allowed from the groups above.
+missing_errors_doc = "allow"      # errors are typed enums (S-ERRORS), their variants say how a call fails
+multiple_crate_versions = "allow" # we don't control our dependencies' trees
+
+# Opted in from restriction.
+# Leftovers that shouldn't ship.
+dbg_macro = "warn"
+todo = "warn"
+unimplemented = "warn"
+exit = "warn"
+mem_forget = "warn"
+# S-PANICS: expect() with the invariant is allowed; unwrap() and panic!() are fine in tests (clippy.toml).
+get_unwrap = "warn"
+panic = "warn"
+unwrap_in_result = "warn"
+unwrap_used = "warn"
+# S-UNSAFE: unsafe stays rare and explained.
+multiple_unsafe_ops_per_block = "warn"
+undocumented_unsafe_blocks = "warn"
+unnecessary_safety_comment = "warn"
+unnecessary_safety_doc = "warn"
+# S-QUALIFIED-FNS: `mem::swap`, not `std::mem::swap` (clippy.toml).
+absolute_paths = "warn"
+# S-NAMES-ABBREVIATIONS: single letters outside the allowed set (clippy.toml).
+min_ident_chars = "warn"
+# S-FIELDS: a struct's fields are all pub or all private.
+partial_pub_fields = "warn"
+# S-DOCS: doc comments are sentences.
+doc_paragraphs_missing_punctuation = "warn"
+# S-TESTS: unit tests live in `mod tests`, named for the behavior.
+redundant_test_prefix = "warn"
+tests_outside_test_module = "warn"
+# Clarity.
+clone_on_ref_ptr = "warn"
+lossy_float_literal = "warn"
+mod_module_files = "warn"                # foo.rs + foo/, never foo/mod.rs
+rc_buffer = "warn"
+rc_mutex = "warn"
+rest_pat_in_fully_bound_structs = "warn"
+str_to_string = "warn"
+unused_result_ok = "warn"
+verbose_file_reads = "warn"
+
+# Opted in from nursery, one by one like restriction.
+use_self = "warn" # `Self { .. }`, not the type's name, inside its impl
 
 [profile.release]
 opt-level = 3
 lto = true
 codegen-units = 1
 panic = 'abort'
-strip = true 
+strip = true
 
 [profile.profiling]
 inherits = "release"
-debug = true
+debug = "line-tables-only"
 strip = false
+
+# A route query timed forward and backward on a real network: `just bench`.
+[[bench]]
+name = "route"
+harness = false

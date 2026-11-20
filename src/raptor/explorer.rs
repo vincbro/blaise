@@ -1,551 +1,504 @@
 use gtfs_bin::{
     consumer::Consumer,
-    models::{Duration, Opt, Sentinel, StopIdx, Time, TripIdx, TripPatternIdx},
+    models::{
+        BoardingRule, Duration, Optional, StopIndex, StopTime, Time, TripIndex, TripPatternIndex,
+    },
 };
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
 use crate::{
     raptor::{
-        LiveTime, Parent, SequnceIdx, Update, query::RaptorQuery, state::State, time_to_walk,
+        self, LiveTime, PatternPosition,
+        pareto::{self, ParetoLabel},
+        query::RaptorQuery,
+        state::State,
+        update::{Parent, StepKind, Update},
     },
     spatial::SpatialGrid,
 };
 
-#[inline(always)]
-pub fn get_arrival_time(consumer: &Consumer, trip_idx: TripIdx, p_idx: SequnceIdx) -> Opt<Time> {
-    consumer.stop_times_by_trip(trip_idx)[p_idx.as_usize()].arrival_time
+/// The updates one worker thread expects to find, so its buffer rarely grows.
+const BUFFER_CAPACITY: usize = 512;
+
+/// A trip being ridden while a pattern is scanned, with the position it was boarded at going
+/// forward or left at going back, and what it cost to get there.
+#[derive(Debug, Clone, Copy)]
+struct Ride {
+    trip: TripIndex,
+    position: PatternPosition,
+    cost: f64,
 }
 
-#[inline(always)]
-pub fn get_departure_time(consumer: &Consumer, trip_idx: TripIdx, p_idx: SequnceIdx) -> Opt<Time> {
-    consumer.stop_times_by_trip(trip_idx)[p_idx.as_usize()].departure_time
+/// A move from the stop a label is at to another stop on foot or by a listed transfer.
+#[derive(Debug, Clone, Copy)]
+struct Hop {
+    from: StopIndex,
+    to: StopIndex,
+    seconds: u32,
+    penalty: f64,
+    kind: StepKind,
 }
 
-#[inline(always)]
-fn merge_buffers<T>(mut a: Vec<T>, mut b: Vec<T>) -> Vec<T> {
-    if a.len() >= b.len() {
-        a.append(&mut b);
-        a
+/// Finds the labels one more round of the search reaches, from what the last round found.
+#[derive(Debug)]
+pub(super) struct Explorer<'a> {
+    query: &'a RaptorQuery<'a>,
+    consumer: &'a Consumer<'a>,
+    spatial: &'a SpatialGrid,
+}
+
+impl<'a> Explorer<'a> {
+    pub(super) const fn new(
+        query: &'a RaptorQuery<'a>,
+        consumer: &'a Consumer<'a>,
+        spatial: &'a SpatialGrid,
+    ) -> Self {
+        Self {
+            query,
+            consumer,
+            spatial,
+        }
+    }
+
+    /// Rides every trip pattern from where the last round marked a stop on it.
+    pub(super) fn trip_patterns(&self, state: &State) -> Vec<Update> {
+        state
+            .active_trip_patterns()
+            .par_iter()
+            .copied()
+            .enumerate()
+            .filter_map(|(pattern, start)| Some((pattern, start.as_option()?)))
+            .fold(
+                || Vec::with_capacity(BUFFER_CAPACITY),
+                |mut buffer, (pattern, start)| {
+                    let pattern = TripPatternIndex::from(pattern);
+                    if self.query.is_arrival() {
+                        self.scan_back(state, pattern, start, &mut buffer);
+                    } else {
+                        self.scan_forward(state, pattern, start, &mut buffer);
+                    }
+                    buffer
+                },
+            )
+            .reduce(Vec::new, merge_buffers)
+    }
+
+    /// Moves from every stop the last step marked to the stops a transfer or a walk reaches.
+    pub(super) fn transfers(&self, state: &State) -> Vec<Update> {
+        state
+            .marked_stops()
+            .par_iter()
+            .enumerate()
+            .filter(|&(_, &marked)| marked)
+            .fold(
+                || Vec::with_capacity(BUFFER_CAPACITY),
+                |mut buffer, (stop, _)| {
+                    self.transfers_from(state, StopIndex::from(stop), &mut buffer);
+                    buffer
+                },
+            )
+            .reduce(Vec::new, merge_buffers)
+    }
+
+    /// Moves from one stop with every label it has this round.
+    fn transfers_from(&self, state: &State, stop: StopIndex, buffer: &mut Vec<Update>) {
+        for label in state.current_labels(stop).iter() {
+            if self.query.is_arrival() {
+                self.transfers_back(state, stop, label, buffer);
+            } else {
+                self.transfers_forward(state, stop, label, buffer);
+            }
+        }
+    }
+
+    /// Rides forward along a pattern, boarding wherever a label gets to a trip sooner than the one
+    /// already ridden, and emitting a label at every stop it can alight at.
+    fn scan_forward(
+        &self,
+        state: &State,
+        pattern: TripPatternIndex,
+        start: PatternPosition,
+        buffer: &mut Vec<Update>,
+    ) {
+        let stops = self.consumer.stop_sequence_by_trip_pattern(pattern);
+        let mut ride: Option<Ride> = None;
+        for (index, &stop) in stops.iter().enumerate().skip(start.as_usize()) {
+            let position = PatternPosition::from(index);
+            if let Some(ride) = ride {
+                self.alight(state, ride, stop, position, buffer);
+            }
+            for label in state.previous_labels(stop).iter() {
+                ride = self.board(ride, label, pattern, position).or(ride);
+            }
+        }
+    }
+
+    /// Rides back along a pattern, the mirror of [`Self::scan_forward`]: it picks the latest trip
+    /// that gets to a label in time, and emits a label at every stop it can be boarded at.
+    fn scan_back(
+        &self,
+        state: &State,
+        pattern: TripPatternIndex,
+        start: PatternPosition,
+        buffer: &mut Vec<Update>,
+    ) {
+        let stops = self.consumer.stop_sequence_by_trip_pattern(pattern);
+        let mut ride: Option<Ride> = None;
+        for (index, &stop) in stops[..=start.as_usize()].iter().enumerate().rev() {
+            let position = PatternPosition::from(index);
+            if let Some(ride) = ride {
+                self.board_back(state, ride, stop, position, buffer);
+            }
+            for label in state.previous_labels(stop).iter() {
+                ride = self.alight_back(ride, label, pattern, position).or(ride);
+            }
+        }
+    }
+
+    /// Emits the label for getting off `ride` at `stop`.
+    fn alight(
+        &self,
+        state: &State,
+        ride: Ride,
+        stop: StopIndex,
+        position: PatternPosition,
+        buffer: &mut Vec<Update>,
+    ) {
+        let stop_time = self.stop_time(ride.trip, position);
+        if stop_time.drop_off == BoardingRule::NOT_AVAILABLE {
+            return;
+        }
+        let Some(arrival) = self.query.arrival(stop_time) else {
+            return;
+        };
+        if state.is_dominated_at(stop, arrival.actual, pareto::narrow_cost(ride.cost), false) {
+            return;
+        }
+        let Some(departure) = self.departure(ride.trip, ride.position) else {
+            return;
+        };
+
+        // A feed with delays can put a stop's arrival before the departure it follows.
+        let ride_time = f64::from(arrival.actual.0.saturating_sub(departure.actual.0));
+        let cost = pareto::narrow_cost(ride.cost + ride_time * self.query.transit_penalty);
+        if state.is_dominated(stop, arrival.actual, cost, false) {
+            return;
+        }
+        buffer.push(Update::new(
+            stop,
+            arrival.actual,
+            cost,
+            Parent::Transit {
+                boarding_position: ride.position,
+                alighting_position: position,
+                trip: ride.trip,
+                departure_time: departure,
+                arrival_time: arrival,
+            },
+        ));
+    }
+
+    /// Emits the label for getting on `ride` at `stop`, when searching back from an arrival.
+    fn board_back(
+        &self,
+        state: &State,
+        ride: Ride,
+        stop: StopIndex,
+        position: PatternPosition,
+        buffer: &mut Vec<Update>,
+    ) {
+        let stop_time = self.stop_time(ride.trip, position);
+        if stop_time.pickup == BoardingRule::NOT_AVAILABLE {
+            return;
+        }
+        let Some(departure) = self.query.departure(stop_time) else {
+            return;
+        };
+        if state.is_dominated_at(stop, departure.actual, pareto::narrow_cost(ride.cost), true) {
+            return;
+        }
+        let Some(arrival) = self.arrival(ride.trip, ride.position) else {
+            return;
+        };
+
+        // A feed with delays can put a stop's arrival before the departure it follows.
+        let ride_time = f64::from(arrival.actual.0.saturating_sub(departure.actual.0));
+        let cost = pareto::narrow_cost(ride.cost + ride_time * self.query.transit_penalty);
+        if state.is_dominated(stop, departure.actual, cost, true) {
+            return;
+        }
+        buffer.push(Update::new(
+            stop,
+            departure.actual,
+            cost,
+            Parent::Transit {
+                boarding_position: position,
+                alighting_position: ride.position,
+                trip: ride.trip,
+                departure_time: departure,
+                arrival_time: arrival,
+            },
+        ));
+    }
+
+    /// The ride a label leads to if it gets to a trip sooner than the one already ridden.
+    fn board(
+        &self,
+        ride: Option<Ride>,
+        label: ParetoLabel,
+        pattern: TripPatternIndex,
+        position: PatternPosition,
+    ) -> Option<Ride> {
+        let current_departure = ride
+            .and_then(|ride| self.departure(ride.trip, position))
+            .map_or(Time(u32::MAX), |departure| departure.actual);
+        if label.time >= current_departure {
+            return None;
+        }
+
+        let trip = self.find_earliest_trip(pattern, position, label.time)?;
+        let candidate = self.departure(trip, position)?;
+        let wait = f64::from(candidate.actual.0 - label.time.0);
+        let cost = f64::from(label.cost) + wait * self.query.transit_penalty;
+
+        // An earlier departure wins, and so does a cheaper way to the same one.
+        let better = candidate.actual < current_departure
+            || (candidate.actual == current_departure
+                && cost < ride.map_or(f64::MAX, |ride| ride.cost));
+        better.then_some(Ride {
+            trip,
+            position,
+            cost,
+        })
+    }
+
+    /// The ride a label leads to if it leaves a trip later than the one already ridden.
+    fn alight_back(
+        &self,
+        ride: Option<Ride>,
+        label: ParetoLabel,
+        pattern: TripPatternIndex,
+        position: PatternPosition,
+    ) -> Option<Ride> {
+        let current_arrival = ride
+            .and_then(|ride| self.arrival(ride.trip, position))
+            .map_or(Time(0), |arrival| arrival.actual);
+        if label.time < current_arrival {
+            return None;
+        }
+
+        let trip = self.find_latest_trip(pattern, position, label.time)?;
+        let candidate = self.arrival(trip, position)?;
+        let wait = f64::from(label.time.0 - candidate.actual.0);
+        let cost = f64::from(label.cost) + wait * self.query.transit_penalty;
+
+        let better = candidate.actual > current_arrival
+            || ride.is_none_or(|ride| candidate.actual == current_arrival && cost < ride.cost);
+        better.then_some(Ride {
+            trip,
+            position,
+            cost,
+        })
+    }
+
+    /// The first trip of the pattern a passenger ready at `ready_time` can board at `position`.
+    fn find_earliest_trip(
+        &self,
+        pattern: TripPatternIndex,
+        position: PatternPosition,
+        ready_time: Time,
+    ) -> Option<TripIndex> {
+        self.consumer
+            .iter_trips_in_trip_pattern(pattern)
+            .filter(|trip| {
+                self.consumer
+                    .is_service_active(trip.service_index, self.query.date)
+            })
+            .filter_map(|trip| {
+                let stop_time = self.stop_time(trip.index, position);
+                if stop_time.pickup == BoardingRule::NOT_AVAILABLE {
+                    return None;
+                }
+                let departure = self.query.departure(stop_time)?;
+                Some((trip.index, departure.actual))
+            })
+            .filter(|&(_, departure)| departure >= ready_time)
+            .min_by_key(|&(_, departure)| departure)
+            .map(|(trip, _)| trip)
+    }
+
+    /// The last trip of the pattern that gets to `position` by `ready_time` and lets passengers
+    /// off.
+    fn find_latest_trip(
+        &self,
+        pattern: TripPatternIndex,
+        position: PatternPosition,
+        ready_time: Time,
+    ) -> Option<TripIndex> {
+        self.consumer
+            .iter_trips_in_trip_pattern(pattern)
+            .filter(|trip| {
+                self.consumer
+                    .is_service_active(trip.service_index, self.query.date)
+            })
+            .filter_map(|trip| {
+                let stop_time = self.stop_time(trip.index, position);
+                if stop_time.drop_off == BoardingRule::NOT_AVAILABLE {
+                    return None;
+                }
+                let arrival = self.query.arrival(stop_time)?;
+                Some((trip.index, arrival.actual))
+            })
+            .filter(|&(_, arrival)| arrival <= ready_time)
+            .max_by_key(|&(_, arrival)| arrival)
+            .map(|(trip, _)| trip)
+    }
+
+    fn stop_time(&self, trip: TripIndex, position: PatternPosition) -> &'a StopTime {
+        &self.consumer.stop_times_by_trip(trip)[position.as_usize()]
+    }
+
+    /// The arrival of a trip at a position, if the vehicle serves it.
+    fn arrival(&self, trip: TripIndex, position: PatternPosition) -> Option<LiveTime> {
+        self.query.arrival(self.stop_time(trip, position))
+    }
+
+    /// The departure of a trip from a position, if the vehicle serves it.
+    fn departure(&self, trip: TripIndex, position: PatternPosition) -> Option<LiveTime> {
+        self.query.departure(self.stop_time(trip, position))
+    }
+
+    fn transfers_forward(
+        &self,
+        state: &State,
+        stop: StopIndex,
+        label: ParetoLabel,
+        buffer: &mut Vec<Update>,
+    ) {
+        for transfer in self.consumer.outbound_transfers_by_stop(stop) {
+            let hop = Hop {
+                from: stop,
+                to: transfer.to_stop_index,
+                seconds: self.transfer_seconds(
+                    transfer.from_stop_index,
+                    transfer.to_stop_index,
+                    transfer.min_transfer_time,
+                ),
+                penalty: self.query.transfer_penalty,
+                kind: StepKind::Transfer,
+            };
+            relax_forward(state, buffer, label, hop);
+        }
+        for hop in self.walks(stop) {
+            relax_forward(state, buffer, label, hop);
+        }
+    }
+
+    fn transfers_back(
+        &self,
+        state: &State,
+        stop: StopIndex,
+        label: ParetoLabel,
+        buffer: &mut Vec<Update>,
+    ) {
+        for transfer in self.consumer.iter_inbound_transfers_by_stop(stop) {
+            let hop = Hop {
+                from: stop,
+                to: transfer.from_stop_index,
+                seconds: self.transfer_seconds(
+                    transfer.from_stop_index,
+                    transfer.to_stop_index,
+                    transfer.min_transfer_time,
+                ),
+                penalty: self.query.transfer_penalty,
+                kind: StepKind::Transfer,
+            };
+            relax_back(state, buffer, label, hop);
+        }
+        for hop in self.walks(stop) {
+            relax_back(state, buffer, label, hop);
+        }
+    }
+
+    /// The walks from a stop to the stops near it.
+    fn walks(&self, stop: StopIndex) -> impl Iterator<Item = Hop> + 'a {
+        let position = self.consumer.stop(stop).coordinate.as_option();
+        let (consumer, spatial, radius) = (self.consumer, self.spatial, self.query.search_radius);
+        let penalty = self.query.walk_penalty;
+        position.into_iter().flat_map(move |position| {
+            raptor::walkable_stops(consumer, spatial, position, radius).map(move |(to, walk)| Hop {
+                from: stop,
+                to,
+                seconds: walk.0,
+                penalty,
+                kind: StepKind::Walk,
+            })
+        })
+    }
+
+    /// The time a transfer takes: the feed's minimum, or the walk between the stops when it gives
+    /// none.
+    fn transfer_seconds(&self, from: StopIndex, to: StopIndex, minimum: Optional<Duration>) -> u32 {
+        let seconds = minimum.as_option().unwrap_or(Duration(0)).0;
+        if seconds != 0 {
+            return seconds;
+        }
+        let from = self.consumer.stop(from).coordinate.as_option();
+        let to = self.consumer.stop(to).coordinate.as_option();
+        from.zip(to)
+            .map_or(0, |(from, to)| raptor::time_to_walk(from, to).0)
+    }
+}
+
+/// Emits the label for arriving at `hop.to` after leaving `hop.from` at the label's time.
+fn relax_forward(state: &State, buffer: &mut Vec<Update>, label: ParetoLabel, hop: Hop) {
+    let arrival = label.time + Duration(hop.seconds);
+    let cost = pareto::narrow_cost(f64::from(label.cost) + f64::from(hop.seconds) * hop.penalty);
+    if state.is_dominated(hop.to, arrival, cost, false) {
+        return;
+    }
+    buffer.push(Update::new(
+        hop.to,
+        arrival,
+        cost,
+        Parent::step(
+            hop.kind,
+            hop.from,
+            LiveTime::scheduled_only(label.time),
+            LiveTime::scheduled_only(arrival),
+        ),
+    ));
+}
+
+/// Emits the label for leaving `hop.to` in time to be at `hop.from` at the label's time.
+fn relax_back(state: &State, buffer: &mut Vec<Update>, label: ParetoLabel, hop: Hop) {
+    let Some(departure) = label.time.0.checked_sub(hop.seconds).map(Time) else {
+        return;
+    };
+    let cost = pareto::narrow_cost(f64::from(label.cost) + f64::from(hop.seconds) * hop.penalty);
+    if state.is_dominated(hop.to, departure, cost, true) {
+        return;
+    }
+    buffer.push(Update::new(
+        hop.to,
+        departure,
+        cost,
+        Parent::step(
+            hop.kind,
+            hop.from,
+            LiveTime::scheduled_only(departure),
+            LiveTime::scheduled_only(label.time),
+        ),
+    ));
+}
+
+/// Joins two buffers by moving the shorter into the longer.
+fn merge_buffers<T>(mut first: Vec<T>, mut second: Vec<T>) -> Vec<T> {
+    if first.len() >= second.len() {
+        first.append(&mut second);
+        first
     } else {
-        b.append(&mut a);
-        b
+        second.append(&mut first);
+        second
     }
-}
-
-/// Calculates transfer time, falling back to spatial walking if time is 0
-#[inline]
-fn calculate_transfer_time(
-    consumer: &Consumer,
-    from_stop: StopIdx,
-    to_stop: StopIdx,
-    min_time: Opt<Duration>,
-) -> u32 {
-    let mut time = min_time.as_option().unwrap_or(Duration(0)).0;
-    if time == 0
-        && let Some(from_coord) = consumer.stop(from_stop).coordinate.as_option()
-        && let Some(to_coord) = consumer.stop(to_stop).coordinate.as_option()
-    {
-        time = time_to_walk(from_coord, to_coord).0;
-    }
-    time
-}
-
-// ==========================================
-// TRIP SEARCH HELPERS
-// ==========================================
-
-fn find_earliest_trip(
-    consumer: &Consumer,
-    query: &RaptorQuery,
-    trip_pattern: TripPatternIdx,
-    p_idx: SequnceIdx,
-    ready_time: Time,
-) -> Opt<TripIdx> {
-    consumer
-        .iter_trips_in_trip_pattern(trip_pattern)
-        .filter(|trip| consumer.is_service_active(trip.service_idx, query.date))
-        .filter_map(|trip| {
-            get_departure_time(consumer, trip.idx, p_idx)
-                .as_option()
-                .map(|t| (trip.idx, t))
-        })
-        .filter(|&(_, departure_time)| departure_time >= ready_time)
-        .min_by_key(|&(_, departure_time)| departure_time)
-        .map(|(trip_idx, _)| trip_idx)
-        .into()
-}
-
-fn find_latest_trip(
-    consumer: &Consumer,
-    query: &RaptorQuery,
-    trip_pattern: TripPatternIdx,
-    p_idx: SequnceIdx,
-    ready_time: Time,
-) -> Opt<TripIdx> {
-    consumer
-        .iter_trips_in_trip_pattern(trip_pattern)
-        .filter(|trip| consumer.is_service_active(trip.service_idx, query.date))
-        .filter_map(|trip| {
-            get_arrival_time(consumer, trip.idx, p_idx)
-                .as_option()
-                .map(|t| (trip.idx, t))
-        })
-        .filter(|&(_, arrival_time)| arrival_time <= ready_time)
-        .max_by_key(|&(_, arrival_time)| arrival_time)
-        .map(|(trip_idx, _)| trip_idx)
-        .into()
-}
-
-// ==========================================
-// CORE ALGORITHM PHASES
-// ==========================================
-
-pub fn explore_trip_patterns(
-    query: &RaptorQuery,
-    consumer: &Consumer,
-    state: &mut State,
-) -> Vec<Update> {
-    state
-        .active_trip_patterns
-        .par_iter()
-        .copied()
-        .enumerate()
-        .filter_map(|(i, p_idx)| p_idx.as_option().map(|p_idx| (i, p_idx)))
-        .fold(
-            || Vec::with_capacity(512),
-            |mut buffer, (trip_pattern_idx, p_idx)| {
-                let trip_pattern_idx = TripPatternIdx(trip_pattern_idx as u32);
-                let trip_pattern = consumer.trip_pattern(trip_pattern_idx);
-
-                let mut active_trip = Opt::new(TripIdx::NONE);
-                let mut boarding_p = Opt::new(SequnceIdx::NONE);
-                // Cost accumulated up to the boarding stop.
-                let mut boarding_cost = f64::MAX;
-
-                for (i, stop) in consumer
-                    .iter_stop_sequence_by_trip_pattern(trip_pattern_idx)
-                    .enumerate()
-                    .skip(p_idx.as_usize())
-                    .map(|(i, stop)| (SequnceIdx(i as u32), stop))
-                {
-                    // PART A: emit an update for the current alighting stop.
-                    if let Some(trip) = active_trip.as_option()
-                        && let arrival_time = get_arrival_time(consumer, trip, i)
-                            .as_option()
-                            .unwrap_or(Time(u32::MAX))
-                        && !state.tau_star[stop.idx.as_usize()].is_dominated(
-                            arrival_time,
-                            boarding_cost as f32,
-                            false,
-                        )
-                    {
-                        let boarding_p_val = boarding_p.as_option().unwrap_or(SequnceIdx::NONE);
-                        let departure_time = get_departure_time(consumer, trip, boarding_p_val)
-                            .as_option()
-                            .unwrap_or(Time(u32::MAX));
-                        let ride_time = arrival_time.0.saturating_sub(departure_time.0) as f64;
-                        // Transit ride cost: ride time × 1.0 (no penalty for being on a vehicle).
-                        let prospective_cost = boarding_cost + ride_time * query.transit_penalty;
-
-                        if !state.tau_star[stop.idx.as_usize()].is_dominated(
-                            arrival_time,
-                            prospective_cost as f32,
-                            false,
-                        ) && !state.target_tau_star.is_dominated(
-                            arrival_time,
-                            prospective_cost as f32,
-                            false,
-                        ) {
-                            buffer.push(Update::new(
-                                stop.idx,
-                                arrival_time,
-                                prospective_cost as f32,
-                                Parent::Transit {
-                                    boarding_p: boarding_p_val,
-                                    alighting_p: i,
-                                    trip,
-                                    departure_time: LiveTime::scheduled_only(departure_time),
-                                    arrival_time: LiveTime::scheduled_only(arrival_time),
-                                },
-                            ));
-                        }
-                    }
-
-                    // PART B: consider boarding from every label on the front at this stop.
-                    let front = &state.previous_labels[stop.idx.as_usize()];
-                    for prev_label in front.iter() {
-                        let current_dep = active_trip
-                            .as_option()
-                            .and_then(|t| get_departure_time(consumer, t, i).as_option())
-                            .unwrap_or(Time(u32::MAX));
-
-                        if prev_label.time < current_dep
-                            && let Some(candidate_trip) = find_earliest_trip(
-                                consumer,
-                                query,
-                                trip_pattern.idx,
-                                i,
-                                prev_label.time,
-                            )
-                            .as_option()
-                        {
-                            let candidate_dep = get_departure_time(consumer, candidate_trip, i)
-                                .as_option()
-                                .unwrap_or(Time(u32::MAX));
-                            let wait = candidate_dep.0.saturating_sub(prev_label.time.0) as f64;
-                            let candidate_cost =
-                                prev_label.cost as f64 + wait * query.transit_penalty;
-
-                            // Accept if earlier departure, or same departure with lower cost.
-                            let better = candidate_dep < current_dep
-                                || (candidate_dep == current_dep && candidate_cost < boarding_cost);
-                            if better {
-                                active_trip = Opt::new(candidate_trip);
-                                boarding_p = Opt::new(i);
-                                boarding_cost = candidate_cost;
-                            }
-                        }
-                    }
-                }
-                buffer
-            },
-        )
-        .reduce(Vec::new, merge_buffers)
-}
-
-pub fn explore_trip_patterns_reverse(
-    query: &RaptorQuery,
-    consumer: &Consumer,
-    state: &mut State,
-) -> Vec<Update> {
-    state
-        .active_trip_patterns
-        .par_iter()
-        .copied()
-        .enumerate()
-        .filter_map(|(i, p_idx)| p_idx.as_option().map(|p_idx| (i, p_idx)))
-        .fold(
-            || Vec::with_capacity(512),
-            |mut buffer, (trip_pattern_idx, p_idx)| {
-                let trip_pattern_idx = TripPatternIdx(trip_pattern_idx as u32);
-                let trip_pattern = consumer.trip_pattern(trip_pattern_idx);
-
-                let mut active_trip = Opt::new(TripIdx::NONE);
-                let mut alighting_p = Opt::new(SequnceIdx::NONE);
-                let mut alighting_cost = f64::MAX;
-
-                let stops: Vec<_> = consumer
-                    .iter_stop_sequence_by_trip_pattern(trip_pattern_idx)
-                    .enumerate()
-                    .take(p_idx.as_usize() + 1)
-                    .map(|(i, stop)| (SequnceIdx(i as u32), stop))
-                    .collect();
-
-                for (i, stop) in stops.into_iter().rev() {
-                    // PART A: emit an update for the current boarding stop.
-                    if let Some(trip) = active_trip.as_option()
-                        && let departure_time = get_departure_time(consumer, trip, i)
-                            .as_option()
-                            .unwrap_or(Time(u32::MIN))
-                        && !state.tau_star[stop.idx.as_usize()].is_dominated(
-                            departure_time,
-                            alighting_cost as f32,
-                            true,
-                        )
-                    {
-                        let alighting_p_val = alighting_p.as_option().unwrap_or(SequnceIdx::NONE);
-                        let arrival_time = get_arrival_time(consumer, trip, alighting_p_val)
-                            .as_option()
-                            .unwrap_or(Time(u32::MIN));
-
-                        let ride_time = arrival_time.0.saturating_sub(departure_time.0) as f64;
-                        let prospective_cost = alighting_cost + ride_time * query.transit_penalty;
-
-                        if !state.tau_star[stop.idx.as_usize()].is_dominated(
-                            departure_time,
-                            prospective_cost as f32,
-                            true,
-                        ) && !state.target_tau_star.is_dominated(
-                            departure_time,
-                            prospective_cost as f32,
-                            true,
-                        ) {
-                            buffer.push(Update::new(
-                                stop.idx,
-                                departure_time,
-                                prospective_cost as f32,
-                                Parent::Transit {
-                                    boarding_p: i,
-                                    alighting_p: alighting_p_val,
-                                    trip,
-                                    departure_time: LiveTime::scheduled_only(departure_time),
-                                    arrival_time: LiveTime::scheduled_only(arrival_time),
-                                },
-                            ));
-                        }
-                    }
-
-                    // PART B: consider alighting from every label on the front at this stop.
-                    let front = &state.previous_labels[stop.idx.as_usize()];
-                    for prev_label in front.iter() {
-                        let current_arrival = active_trip
-                            .as_option()
-                            .and_then(|t| get_arrival_time(consumer, t, i).as_option())
-                            .unwrap_or(Time(u32::MIN));
-
-                        if prev_label.time >= current_arrival
-                            && let Some(latest_trip) = find_latest_trip(
-                                consumer,
-                                query,
-                                trip_pattern.idx,
-                                i,
-                                prev_label.time,
-                            )
-                            .as_option()
-                        {
-                            let later_arrival = get_arrival_time(consumer, latest_trip, i)
-                                .as_option()
-                                .unwrap_or(Time(u32::MIN));
-                            let wait = prev_label.time.0.saturating_sub(later_arrival.0) as f64;
-                            let candidate_cost =
-                                prev_label.cost as f64 + wait * query.transit_penalty;
-
-                            let better = active_trip.is_none()
-                                || later_arrival > current_arrival
-                                || (later_arrival == current_arrival
-                                    && candidate_cost < alighting_cost);
-                            if better {
-                                active_trip = Opt::new(latest_trip);
-                                alighting_p = Opt::new(i);
-                                alighting_cost = candidate_cost;
-                            }
-                        }
-                    }
-                }
-                buffer
-            },
-        )
-        .reduce(Vec::new, merge_buffers)
-}
-
-pub fn explore_transfers(
-    query: &RaptorQuery,
-    consumer: &Consumer,
-    spatial: &SpatialGrid,
-    state: &mut State,
-) -> Vec<Update> {
-    state
-        .marked_stops
-        .par_iter()
-        .copied()
-        .enumerate()
-        .filter(|&(_, marked)| marked)
-        .fold(
-            || Vec::with_capacity(512),
-            |mut buffer, (stop_idx, _)| {
-                let stop_idx = StopIdx(stop_idx as u32);
-
-                // Emit one update per label on the current front for this stop.
-                for current_label in state.current_labels[stop_idx.as_usize()].iter() {
-                    let current_label = *current_label;
-
-                    // Explicit Transfers
-                    consumer
-                        .outbound_transfers_by_stop(stop_idx)
-                        .iter()
-                        .for_each(|transfer| {
-                            let transfer_time = calculate_transfer_time(
-                                consumer,
-                                transfer.from_stop_idx,
-                                transfer.to_stop_idx,
-                                transfer.min_transfer_time,
-                            );
-                            let arrival_time = Time(current_label.time.0 + transfer_time);
-                            let transfer_cost = current_label.cost as f64
-                                + transfer_time as f64 * query.transfer_penalty;
-
-                            if !state.tau_star[transfer.to_stop_idx.as_usize()].is_dominated(
-                                arrival_time,
-                                transfer_cost as f32,
-                                false,
-                            ) && !state.target_tau_star.is_dominated(
-                                arrival_time,
-                                transfer_cost as f32,
-                                false,
-                            ) {
-                                buffer.push(Update::new(
-                                    transfer.to_stop_idx,
-                                    arrival_time,
-                                    transfer_cost as f32,
-                                    Parent::Transfer {
-                                        from_stop: transfer.from_stop_idx,
-                                        departure_time: LiveTime::scheduled_only(
-                                            current_label.time,
-                                        ),
-                                        arrival_time: LiveTime::scheduled_only(arrival_time),
-                                    },
-                                ));
-                            }
-                        });
-
-                    // Spatial walking
-                    if let Some(coordinate) = consumer.stop(stop_idx).coordinate.as_option() {
-                        spatial
-                            .iter_stops_in_radius(coordinate, query.search_radius)
-                            .filter(|&s| consumer.iter_trips_by_stop(s).count() != 0)
-                            .filter_map(|s| consumer.stop(s).coordinate.as_option().map(|c| (s, c)))
-                            .for_each(|(to_stop, to_coordinate)| {
-                                let walk_time = time_to_walk(coordinate, to_coordinate).0;
-                                let arrival_time = Time(current_label.time.0 + walk_time);
-                                let walk_cost = current_label.cost as f64
-                                    + walk_time as f64 * query.walk_penalty;
-
-                                if !state.tau_star[to_stop.as_usize()].is_dominated(
-                                    arrival_time,
-                                    walk_cost as f32,
-                                    false,
-                                ) && !state.target_tau_star.is_dominated(
-                                    arrival_time,
-                                    walk_cost as f32,
-                                    false,
-                                ) {
-                                    buffer.push(Update::new(
-                                        to_stop,
-                                        arrival_time,
-                                        walk_cost as f32,
-                                        Parent::Walk {
-                                            from_stop: stop_idx,
-                                            departure_time: LiveTime::scheduled_only(
-                                                current_label.time,
-                                            ),
-                                            arrival_time: LiveTime::scheduled_only(arrival_time),
-                                        },
-                                    ));
-                                }
-                            });
-                    }
-                }
-                buffer
-            },
-        )
-        .reduce(Vec::new, merge_buffers)
-}
-
-pub fn explore_transfers_reverse(
-    query: &RaptorQuery,
-    consumer: &Consumer,
-    spatial: &SpatialGrid,
-    state: &mut State,
-) -> Vec<Update> {
-    state
-        .marked_stops
-        .par_iter()
-        .copied()
-        .enumerate()
-        .filter(|&(_, marked)| marked)
-        .fold(
-            || Vec::with_capacity(512),
-            |mut buffer, (stop_idx, _)| {
-                let stop_idx = StopIdx(stop_idx as u32);
-
-                // Emit one update per label on the current front for this stop.
-                for current_label in state.current_labels[stop_idx.as_usize()].iter() {
-                    let current_label = *current_label;
-
-                    // Explicit Transfers
-                    consumer
-                        .iter_inbound_transfers_by_stop(stop_idx)
-                        .for_each(|transfer| {
-                            let transfer_time = calculate_transfer_time(
-                                consumer,
-                                transfer.from_stop_idx,
-                                transfer.to_stop_idx,
-                                transfer.min_transfer_time,
-                            );
-                            let transfer_cost = current_label.cost as f64
-                                + transfer_time as f64 * query.transfer_penalty;
-
-                            if !state.tau_star[transfer.from_stop_idx.as_usize()].is_dominated(
-                                Time(0),
-                                transfer_cost as f32,
-                                true,
-                            ) && !state.target_tau_star.is_dominated(
-                                Time(0),
-                                transfer_cost as f32,
-                                true,
-                            ) && current_label.time.0 >= transfer_time
-                            {
-                                let departure_time = Time(current_label.time.0 - transfer_time);
-                                if !state.tau_star[transfer.from_stop_idx.as_usize()].is_dominated(
-                                    departure_time,
-                                    transfer_cost as f32,
-                                    true,
-                                ) && !state.target_tau_star.is_dominated(
-                                    departure_time,
-                                    transfer_cost as f32,
-                                    true,
-                                ) {
-                                    buffer.push(Update::new(
-                                        transfer.from_stop_idx,
-                                        departure_time,
-                                        transfer_cost as f32,
-                                        Parent::Transfer {
-                                            from_stop: stop_idx,
-                                            departure_time: LiveTime::scheduled_only(
-                                                departure_time,
-                                            ),
-                                            arrival_time: LiveTime::scheduled_only(
-                                                current_label.time,
-                                            ),
-                                        },
-                                    ));
-                                }
-                            }
-                        });
-
-                    // Spatial walking
-                    if let Some(coordinate) = consumer.stop(stop_idx).coordinate.as_option() {
-                        spatial
-                            .iter_stops_in_radius(coordinate, query.search_radius)
-                            .filter(|&s| consumer.iter_trips_by_stop(s).count() != 0)
-                            .filter_map(|s| consumer.stop(s).coordinate.as_option().map(|c| (s, c)))
-                            .for_each(|(other_stop, other_coordinate)| {
-                                let walk_time = time_to_walk(coordinate, other_coordinate).0;
-                                let walk_cost = current_label.cost as f64
-                                    + walk_time as f64 * query.walk_penalty;
-
-                                if current_label.time.0 >= walk_time {
-                                    let departure_time = Time(current_label.time.0 - walk_time);
-                                    if !state.tau_star[other_stop.as_usize()].is_dominated(
-                                        departure_time,
-                                        walk_cost as f32,
-                                        true,
-                                    ) && !state.target_tau_star.is_dominated(
-                                        departure_time,
-                                        walk_cost as f32,
-                                        true,
-                                    ) {
-                                        buffer.push(Update::new(
-                                            other_stop,
-                                            departure_time,
-                                            walk_cost as f32,
-                                            Parent::Walk {
-                                                from_stop: stop_idx,
-                                                departure_time: LiveTime::scheduled_only(
-                                                    departure_time,
-                                                ),
-                                                arrival_time: LiveTime::scheduled_only(
-                                                    current_label.time,
-                                                ),
-                                            },
-                                        ));
-                                    }
-                                }
-                            });
-                    }
-                }
-                buffer
-            },
-        )
-        .reduce(Vec::new, merge_buffers)
 }
