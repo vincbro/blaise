@@ -8,7 +8,7 @@ use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIter
 
 use crate::{
     raptor::{
-        self, LiveTime, PatternPosition,
+        self, Day, LiveTime, PatternPosition,
         pareto::{self, ParetoLabel},
         query::RaptorQuery,
         state::State,
@@ -25,6 +25,7 @@ const BUFFER_CAPACITY: usize = 512;
 #[derive(Debug, Clone, Copy)]
 struct Ride {
     trip: TripIndex,
+    day: Day,
     position: PatternPosition,
     cost: f64,
 }
@@ -165,16 +166,17 @@ impl<'a> Explorer<'a> {
         buffer: &mut Vec<Update>,
     ) {
         let stop_time = self.stop_time(ride.trip, position);
+        let day = ride.day;
         if stop_time.drop_off == BoardingRule::NOT_AVAILABLE {
             return;
         }
-        let Some(arrival) = self.query.arrival(stop_time) else {
+        let Some(arrival) = self.query.arrival(stop_time, day) else {
             return;
         };
         if state.is_dominated_at(stop, arrival.actual, pareto::narrow_cost(ride.cost), false) {
             return;
         }
-        let Some(departure) = self.departure(ride.trip, ride.position) else {
+        let Some(departure) = self.departure(ride.trip, day, ride.position) else {
             return;
         };
 
@@ -192,6 +194,7 @@ impl<'a> Explorer<'a> {
                 boarding_position: ride.position,
                 alighting_position: position,
                 trip: ride.trip,
+                day,
                 departure_time: departure,
                 arrival_time: arrival,
             },
@@ -208,16 +211,17 @@ impl<'a> Explorer<'a> {
         buffer: &mut Vec<Update>,
     ) {
         let stop_time = self.stop_time(ride.trip, position);
+        let day = ride.day;
         if stop_time.pickup == BoardingRule::NOT_AVAILABLE {
             return;
         }
-        let Some(departure) = self.query.departure(stop_time) else {
+        let Some(departure) = self.query.departure(stop_time, day) else {
             return;
         };
         if state.is_dominated_at(stop, departure.actual, pareto::narrow_cost(ride.cost), true) {
             return;
         }
-        let Some(arrival) = self.arrival(ride.trip, ride.position) else {
+        let Some(arrival) = self.arrival(ride.trip, day, ride.position) else {
             return;
         };
 
@@ -235,6 +239,7 @@ impl<'a> Explorer<'a> {
                 boarding_position: position,
                 alighting_position: ride.position,
                 trip: ride.trip,
+                day,
                 departure_time: departure,
                 arrival_time: arrival,
             },
@@ -250,14 +255,14 @@ impl<'a> Explorer<'a> {
         position: PatternPosition,
     ) -> Option<Ride> {
         let current_departure = ride
-            .and_then(|ride| self.departure(ride.trip, position))
+            .and_then(|ride| self.departure(ride.trip, ride.day, position))
             .map_or(Time(u32::MAX), |departure| departure.actual);
         if label.time >= current_departure {
             return None;
         }
 
-        let trip = self.find_earliest_trip(pattern, position, label.time)?;
-        let candidate = self.departure(trip, position)?;
+        let (trip, day) = self.find_earliest_trip(pattern, position, label.time)?;
+        let candidate = self.departure(trip, day, position)?;
         let wait = f64::from(candidate.actual.0 - label.time.0);
         let cost = f64::from(label.cost) + wait * self.query.transit_penalty;
 
@@ -267,6 +272,7 @@ impl<'a> Explorer<'a> {
                 && cost < ride.map_or(f64::MAX, |ride| ride.cost));
         better.then_some(Ride {
             trip,
+            day,
             position,
             cost,
         })
@@ -281,14 +287,14 @@ impl<'a> Explorer<'a> {
         position: PatternPosition,
     ) -> Option<Ride> {
         let current_arrival = ride
-            .and_then(|ride| self.arrival(ride.trip, position))
+            .and_then(|ride| self.arrival(ride.trip, ride.day, position))
             .map_or(Time(0), |arrival| arrival.actual);
         if label.time < current_arrival {
             return None;
         }
 
-        let trip = self.find_latest_trip(pattern, position, label.time)?;
-        let candidate = self.arrival(trip, position)?;
+        let (trip, day) = self.find_latest_trip(pattern, position, label.time)?;
+        let candidate = self.arrival(trip, day, position)?;
         let wait = f64::from(label.time.0 - candidate.actual.0);
         let cost = f64::from(label.cost) + wait * self.query.transit_penalty;
 
@@ -296,62 +302,68 @@ impl<'a> Explorer<'a> {
             || ride.is_none_or(|ride| candidate.actual == current_arrival && cost < ride.cost);
         better.then_some(Ride {
             trip,
+            day,
             position,
             cost,
         })
     }
 
-    /// The first trip of the pattern a passenger ready at `ready_time` can board at `position`.
+    /// The trips of a pattern that run on one of the days the search covers, each with the day.
+    fn runs(&self, pattern: TripPatternIndex) -> impl Iterator<Item = (TripIndex, Day)> + 'a {
+        let (consumer, query) = (self.consumer, self.query);
+        let trips = consumer.iter_trips_in_trip_pattern(pattern);
+        trips.flat_map(move |trip| {
+            Day::ALL.into_iter().filter_map(move |day| {
+                let date = query.service_date(day)?;
+                consumer
+                    .is_service_active(trip.service_index, date)
+                    .then_some((trip.index, day))
+            })
+        })
+    }
+
+    /// The first trip of the pattern a passenger ready at `ready_time` can board at `position`,
+    /// and the day it runs on.
     fn find_earliest_trip(
         &self,
         pattern: TripPatternIndex,
         position: PatternPosition,
         ready_time: Time,
-    ) -> Option<TripIndex> {
-        self.consumer
-            .iter_trips_in_trip_pattern(pattern)
-            .filter(|trip| {
-                self.consumer
-                    .is_service_active(trip.service_index, self.query.date)
-            })
-            .filter_map(|trip| {
-                let stop_time = self.stop_time(trip.index, position);
+    ) -> Option<(TripIndex, Day)> {
+        self.runs(pattern)
+            .filter_map(|(trip, day)| {
+                let stop_time = self.stop_time(trip, position);
                 if stop_time.pickup == BoardingRule::NOT_AVAILABLE {
                     return None;
                 }
-                let departure = self.query.departure(stop_time)?;
-                Some((trip.index, departure.actual))
+                let departure = self.query.departure(stop_time, day)?;
+                Some((trip, day, departure.actual))
             })
-            .filter(|&(_, departure)| departure >= ready_time)
-            .min_by_key(|&(_, departure)| departure)
-            .map(|(trip, _)| trip)
+            .filter(|&(_, _, departure)| departure >= ready_time)
+            .min_by_key(|&(_, _, departure)| departure)
+            .map(|(trip, day, _)| (trip, day))
     }
 
     /// The last trip of the pattern that gets to `position` by `ready_time` and lets passengers
-    /// off.
+    /// off, and the day it runs on.
     fn find_latest_trip(
         &self,
         pattern: TripPatternIndex,
         position: PatternPosition,
         ready_time: Time,
-    ) -> Option<TripIndex> {
-        self.consumer
-            .iter_trips_in_trip_pattern(pattern)
-            .filter(|trip| {
-                self.consumer
-                    .is_service_active(trip.service_index, self.query.date)
-            })
-            .filter_map(|trip| {
-                let stop_time = self.stop_time(trip.index, position);
+    ) -> Option<(TripIndex, Day)> {
+        self.runs(pattern)
+            .filter_map(|(trip, day)| {
+                let stop_time = self.stop_time(trip, position);
                 if stop_time.drop_off == BoardingRule::NOT_AVAILABLE {
                     return None;
                 }
-                let arrival = self.query.arrival(stop_time)?;
-                Some((trip.index, arrival.actual))
+                let arrival = self.query.arrival(stop_time, day)?;
+                Some((trip, day, arrival.actual))
             })
-            .filter(|&(_, arrival)| arrival <= ready_time)
-            .max_by_key(|&(_, arrival)| arrival)
-            .map(|(trip, _)| trip)
+            .filter(|&(_, _, arrival)| arrival <= ready_time)
+            .max_by_key(|&(_, _, arrival)| arrival)
+            .map(|(trip, day, _)| (trip, day))
     }
 
     fn stop_time(&self, trip: TripIndex, position: PatternPosition) -> &'a StopTime {
@@ -359,13 +371,13 @@ impl<'a> Explorer<'a> {
     }
 
     /// The arrival of a trip at a position, if the vehicle serves it.
-    fn arrival(&self, trip: TripIndex, position: PatternPosition) -> Option<LiveTime> {
-        self.query.arrival(self.stop_time(trip, position))
+    fn arrival(&self, trip: TripIndex, day: Day, position: PatternPosition) -> Option<LiveTime> {
+        self.query.arrival(self.stop_time(trip, position), day)
     }
 
     /// The departure of a trip from a position, if the vehicle serves it.
-    fn departure(&self, trip: TripIndex, position: PatternPosition) -> Option<LiveTime> {
-        self.query.departure(self.stop_time(trip, position))
+    fn departure(&self, trip: TripIndex, day: Day, position: PatternPosition) -> Option<LiveTime> {
+        self.query.departure(self.stop_time(trip, position), day)
     }
 
     fn transfers_forward(

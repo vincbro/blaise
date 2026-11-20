@@ -51,6 +51,36 @@ impl PatternPosition {
     }
 }
 
+/// Seconds in a service day.
+pub(crate) const DAY_SECONDS: u32 = 86_400;
+
+/// Which service day a trip runs on, counted from the day before the query's date.
+///
+/// A search keeps time from midnight of the day before the query's date, so a trip of yesterday's
+/// service that runs past midnight, and one of tomorrow's service, are both on the same clock as
+/// the query. The clock only exists inside a search: an itinerary is shifted back to the date it
+/// starts on.
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Day(u8);
+
+impl Day {
+    /// The day before the query's date, the query's date and the day after it.
+    pub(crate) const ALL: [Self; 3] = [Self(0), Self(1), Self(2)];
+    /// The query's own date.
+    pub(crate) const QUERY: Self = Self(1);
+
+    /// The number of days after the first day of the search clock.
+    pub(crate) const fn offset(self) -> u8 {
+        self.0
+    }
+
+    /// How far the stop times of a trip on this day move on the search clock.
+    pub(crate) fn shift(self) -> u32 {
+        u32::from(self.0) * DAY_SECONDS
+    }
+}
+
 /// A time from the timetable and the time the vehicle is expected, which differ when it runs
 /// early or late.
 #[derive(Debug, Clone, Copy)]
@@ -65,6 +95,30 @@ impl LiveTime {
         Delay::from(i64::from(self.actual.0) - i64::from(self.scheduled.0))
     }
 
+    /// A time from the timetable and the time the vehicle is expected.
+    #[must_use]
+    pub(crate) const fn new(scheduled: Time, actual: Time) -> Self {
+        Self { scheduled, actual }
+    }
+
+    /// The same times, `seconds` later.
+    #[must_use]
+    pub(crate) fn shifted(self, seconds: u32) -> Self {
+        Self {
+            scheduled: Time(self.scheduled.0.saturating_add(seconds)),
+            actual: Time(self.actual.0.saturating_add(seconds)),
+        }
+    }
+
+    /// The same times, `seconds` earlier, and not before the start of the clock.
+    #[must_use]
+    pub(crate) const fn earlier(self, seconds: u32) -> Self {
+        Self {
+            scheduled: Time(self.scheduled.0.saturating_sub(seconds)),
+            actual: Time(self.actual.0.saturating_sub(seconds)),
+        }
+    }
+
     #[must_use]
     pub const fn scheduled_only(time: Time) -> Self {
         Self {
@@ -75,6 +129,9 @@ impl LiveTime {
 }
 
 /// Finds the best itinerary for a query.
+///
+/// The search runs on a clock that starts a day before the query's date. The
+/// itinerary is shifted back to the day its first leg starts on.
 ///
 /// An arrive-by query is solved backwards to find the latest departure that still arrives in
 /// time, then forwards from that departure so the itinerary is the usual one.
@@ -88,6 +145,10 @@ pub fn solve(
     spatial: &SpatialGrid,
     state: &mut State,
 ) -> Result<Itinerary> {
+    let query = RaptorQuery {
+        time_direction: query.time_direction.on_search_clock(),
+        ..query
+    };
     let itinerary = solve_core(&query, consumer, spatial, state)?;
 
     if query.is_arrival()
@@ -98,10 +159,10 @@ pub fn solve(
             ..query
         };
         state.reset();
-        return solve_core(&forward_query, consumer, spatial, state);
+        return solve_core(&forward_query, consumer, spatial, state).map(Itinerary::rebased);
     }
 
-    Ok(itinerary)
+    Ok(itinerary.rebased())
 }
 
 fn solve_core(
