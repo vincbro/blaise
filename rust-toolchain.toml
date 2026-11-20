@@ -1,0 +1,7 @@
+# The Rust that development and CI use. rustup installs it on first use (or run
+# `just toolchain`). Bump it in a change of its own, fixing whatever new lints
+# come with it. The oldest Rust wend builds on is rust-version in Cargo.toml.
+[toolchain]
+channel = "1.99.0"
+components = ["clippy", "rustfmt", "rust-analyzer", "rust-src"]
+profile = "minimal"

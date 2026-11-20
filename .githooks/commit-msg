@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Installed by `just hooks`. code-standards/COMMITS.md S-COMMITS; the check lives in the justfile.
+exec just --justfile "$(git rev-parse --show-toplevel)/justfile" commit-msg "$1"

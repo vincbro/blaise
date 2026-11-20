@@ -1,0 +1,39 @@
+allow-dbg-in-tests = true
+allow-expect-in-tests = true
+allow-print-in-tests = true
+allow-unwrap-in-tests = true
+
+# Perf: warn on big moves and copies long before clippy's defaults do.
+array-size-threshold = 4096      # default 16384: large_stack_arrays, large_const_arrays
+enum-variant-size-threshold = 64 # default 200: large_enum_variant
+future-size-threshold = 8192     # default 16384: large_futures
+pass-by-value-size-limit = 64    # default 256: large_types_passed_by_value
+stack-size-threshold = 65536     # default 512000: large_stack_frames
+too-large-for-stack = 100        # default 200: boxed_local, useless_vec
+vec-box-size-threshold = 1024    # default 4096: vec_box
+
+# Style: code-standards/rust/STYLE.md. Each setting names the rule it enforces.
+
+# S-FLAT: no line deeper than 4 blocks, counting mod, impl, fn, branches, loops
+# and closures. Default 0 is off.
+excessive-nesting-threshold = 4
+
+# S-QUALIFIED-FNS: a path may name the module and the item, no more.
+absolute-paths-max-segments = 2
+
+# S-NAMES-ABBREVIATIONS: the allowed abbreviations are listed in code-standards/rust/STYLE.md.
+# ".." keeps clippy's defaults (foo, baz, quux).
+disallowed-names = ["..", "idx", "ptr", "tmp", "temp", "val", "res", "ret"]
+allowed-idents-below-min-chars = ["c", "f", "i", "j", "n", "x", "y"]
+
+# S-BOOLS: at most one bool parameter, and it has to read as "x is true".
+max-fn-params-bools = 1
+
+# S-INPUTS: take &str, &Path, &[T] directly, never a conversion bound.
+disallowed-types = [
+  { path = "std::convert::AsRef", reason = "S-INPUTS: take &str, &Path or &[T] directly" },
+  { path = "std::convert::Into", reason = "S-INPUTS: take the concrete type, the caller converts" },
+]
+
+# S-PANICS: tests may panic.
+allow-panic-in-tests = true

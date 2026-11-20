@@ -1,0 +1,8 @@
+# taplo formats every TOML file: `just fmt`. Keys keep their written order:
+# lint tables are grouped by reason, and cargo-sort sorts dependency tables.
+include = ["**/*.toml"]
+exclude = ["target/**"]
+
+[formatting]
+column_width = 100   # rustfmt's max_width
+reorder_keys = false

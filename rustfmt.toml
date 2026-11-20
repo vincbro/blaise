@@ -1,0 +1,16 @@
+# Run through `just fmt`, which uses the nightly pinned in the justfile: the
+# import options below are nightly-only. A stable `cargo fmt` warns and skips
+# them, so `just fmt-check` is the source of truth. Style: code-standards/rust/STYLE.md.
+edition = "2024"
+style_edition = "2024"
+use_field_init_shorthand = true
+
+# S-IMPORTS: one nested `use` per crate, grouped std, external, crate.
+group_imports = "StdExternalCrate"
+imports_granularity = "Crate"
+
+# Consistency in what's left to taste.
+format_code_in_doc_comments = true
+format_macro_matchers = true
+hex_literal_case = "Lower"
+normalize_doc_attributes = true
