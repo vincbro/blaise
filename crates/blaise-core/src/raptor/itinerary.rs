@@ -93,6 +93,17 @@ impl Itinerary {
         consumer: &Consumer<'_>,
     ) -> Result<Self> {
         let (best_stop, best_round) = state.best_target().ok_or(Error::NoRoute)?;
+        Ok(Self::at(query, state, consumer, best_stop, best_round))
+    }
+
+    /// The itinerary that ends at `best_stop` in `best_round` of a finished search.
+    pub(crate) fn at(
+        query: &RaptorQuery<'_>,
+        state: &State,
+        consumer: &Consumer<'_>,
+        best_stop: StopIndex,
+        best_round: usize,
+    ) -> Self {
         let trace = Trace {
             query,
             state,
@@ -122,12 +133,19 @@ impl Itinerary {
                 query.destination.resolve(best_stop),
             )
         };
-        Ok(Self {
+        Self {
             date: query.service_date(Day::ALL[0]).unwrap_or(query.date),
             from,
             to,
             legs: legs.into_boxed_slice(),
-        })
+        }
+    }
+
+    /// Whether both leave and arrive at the same times by as many vehicles.
+    pub(crate) fn same_journey(&self, other: &Self) -> bool {
+        self.rides() == other.rides()
+            && self.departure().map(|time| time.actual) == other.departure().map(|time| time.actual)
+            && self.arrival().map(|time| time.actual) == other.arrival().map(|time| time.actual)
     }
 
     /// When the journey leaves, or `None` for a journey with no legs.

@@ -4,7 +4,7 @@ use flatnet_core::{
 };
 
 use crate::{
-    Result,
+    Error, Result,
     raptor::{
         explorer::Explorer,
         itinerary::Itinerary,
@@ -166,12 +166,84 @@ pub fn solve(
     Ok(itinerary.rebased())
 }
 
+/// Every journey that gets there sooner than any with fewer vehicles, fewest vehicles first.
+pub fn solve_all(
+    query: RaptorQuery<'_>,
+    consumer: &Consumer<'_>,
+    spatial: &SpatialGrid,
+    state: &mut State,
+) -> Result<Vec<Itinerary>> {
+    let query = RaptorQuery {
+        time_direction: query.time_direction.on_search_clock(),
+        ..query
+    };
+    run_rounds(&query, consumer, spatial, state);
+    let targets = state.round_targets(query.is_arrival());
+    if targets.is_empty() {
+        return Err(Error::NoRoute);
+    }
+    if !query.is_arrival() {
+        return Ok(targets
+            .into_iter()
+            .map(|(stop, round)| Itinerary::at(&query, state, consumer, stop, round).rebased())
+            .collect());
+    }
+
+    // Each journey found going back leaves at its own time, so it is planned forward from there.
+    // The ways forward that still get there in time are all kept, because the latest departure
+    // says nothing about which of them arrives first.
+    let deadline = query.time_direction.time();
+    let departures: Vec<Time> = targets
+        .into_iter()
+        .filter_map(|(stop, round)| {
+            let itinerary = Itinerary::at(&query, state, consumer, stop, round);
+            Some(itinerary.legs.first()?.departure_time.actual)
+        })
+        .collect();
+    let mut found: Vec<Itinerary> = Vec::with_capacity(departures.len());
+    for departure in departures {
+        let forward_query = RaptorQuery {
+            origin: query.origin.clone(),
+            destination: query.destination.clone(),
+            time_direction: TimeDirection::Departure(departure),
+            ..query
+        };
+        state.reset();
+        run_rounds(&forward_query, consumer, spatial, state);
+        for (stop, round) in state.round_targets(false) {
+            let itinerary = Itinerary::at(&forward_query, state, consumer, stop, round);
+            let in_time = itinerary
+                .arrival()
+                .is_some_and(|arrival| arrival.actual <= deadline);
+            let itinerary = itinerary.rebased();
+            if in_time && !found.iter().any(|kept| kept.same_journey(&itinerary)) {
+                found.push(itinerary);
+            }
+        }
+    }
+    if found.is_empty() {
+        return Err(Error::NoRoute);
+    }
+    Ok(found)
+}
+
 fn solve_core(
     query: &RaptorQuery<'_>,
     consumer: &Consumer<'_>,
     spatial: &SpatialGrid,
     state: &mut State,
 ) -> Result<Itinerary> {
+    run_rounds(query, consumer, spatial, state);
+    Itinerary::new(query, state, consumer)
+}
+
+/// Runs the rounds of the search, leaving the labels and parents in `state`.
+fn run_rounds(
+    query: &RaptorQuery<'_>,
+    consumer: &Consumer<'_>,
+    spatial: &SpatialGrid,
+    state: &mut State,
+) {
     let is_arrival = query.is_arrival();
     let explorer = Explorer::new(query, consumer, spatial);
 
@@ -192,8 +264,6 @@ fn solve_core(
         state.apply_updates(round, is_arrival, &updates);
         state.record_targets(round, is_arrival, query.walk_penalty);
     }
-
-    Itinerary::new(query, state, consumer)
 }
 
 /// Starts the search at the query's origin, or at its destination when searching back from an

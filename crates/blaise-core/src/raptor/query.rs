@@ -275,7 +275,8 @@ impl<'a> RaptorQuery<'a> {
         raptor::solve(self, consumer, spatial, state)
     }
 
-    /// Plans the journey and returns it as the set of journeys found, to pick from.
+    /// Plans the journey and returns every journey that gets there sooner than any with fewer
+    /// vehicles, to pick from.
     ///
     /// # Errors
     ///
@@ -286,8 +287,7 @@ impl<'a> RaptorQuery<'a> {
         spatial: &SpatialGrid,
         state: &mut State,
     ) -> Result<Journeys> {
-        self.solve(consumer, spatial, state)
-            .map(|itinerary| Journeys::new(vec![itinerary]))
+        raptor::solve_all(self, consumer, spatial, state).map(Journeys::new)
     }
 
     /// The live data for trips on `day`. A `Realtime` made for a service date describes that date

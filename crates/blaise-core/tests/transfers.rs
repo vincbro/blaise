@@ -143,9 +143,46 @@ mod tests {
         );
     }
 
-    #[test]
-    fn journeys_holds_what_a_search_found() {
+    fn journeys_to_c(arrive_by: Option<&str>) -> Vec<usize> {
         let (_file, mmap) = direct_or_change();
+        let consumer = Consumer::new(&mmap).expect("a valid file");
+        let query = query(
+            QueryLocation::Stop(stop(&consumer, "A")),
+            QueryLocation::Stop(stop(&consumer, "C")),
+            arrive_by,
+            None,
+        );
+        let spatial = SpatialGrid::new(&consumer);
+        let mut state = State::new(&consumer);
+
+        let journeys = query
+            .journeys(&consumer, &spatial, &mut state)
+            .expect("a route exists");
+
+        journeys.itineraries.iter().map(Itinerary::rides).collect()
+    }
+
+    #[test]
+    fn a_search_finds_the_direct_trip_and_the_faster_change() {
+        assert_eq!(
+            journeys_to_c(None),
+            [1, 2],
+            "the direct trip arrives at 08:30, the change at 08:20"
+        );
+    }
+
+    #[test]
+    fn a_search_back_from_an_arrival_finds_both_too() {
+        assert_eq!(
+            journeys_to_c(Some("08:40:00")),
+            [1, 2],
+            "each leaves at its own time"
+        );
+    }
+
+    #[test]
+    fn a_way_that_is_no_faster_for_more_vehicles_is_left_out() {
+        let (_file, mmap) = local_then_express();
         let consumer = Consumer::new(&mmap).expect("a valid file");
         let query = query(
             QueryLocation::Stop(stop(&consumer, "A")),
@@ -163,7 +200,7 @@ mod tests {
         assert_eq!(
             journeys.itineraries.len(),
             1,
-            "one search finds one journey for now"
+            "changing at B arrives with the direct ride, so only that is found"
         );
     }
 }

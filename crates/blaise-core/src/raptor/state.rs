@@ -23,6 +23,7 @@ const CHECK_LIMIT: usize = 2_000;
 /// - A marked stop has a label.
 /// - The target has a best stop exactly when it has a best round, and that round is one of the
 ///   search's.
+/// - The target has a slot for each round, and the best round's slot is filled.
 #[derive(Debug)]
 pub struct State {
     /// Best labels per stop, accumulated across all rounds.
@@ -162,6 +163,23 @@ impl State {
         Some((self.target.best_stop.as_option()?, self.target.best_round?))
     }
 
+    /// The stop and round of each way to the target that gets there sooner than every way with
+    /// fewer rounds, fewest rounds first.
+    pub(crate) fn round_targets(&self, is_arrival: bool) -> Vec<(StopIndex, usize)> {
+        let mut found: Vec<(StopIndex, usize)> = Vec::new();
+        let mut best: Option<Time> = None;
+        for (round, entry) in self.target.by_round.iter().enumerate() {
+            let Some((stop, label)) = entry else {
+                continue;
+            };
+            if best.is_none_or(|time| sooner(label.time, time, is_arrival)) {
+                best = Some(label.time);
+                found.push((*stop, round));
+            }
+        }
+        found
+    }
+
     pub(crate) fn parent(&self, round: usize, stop: StopIndex) -> Option<Parent> {
         self.parents[self.parent_slot(round, stop)]
     }
@@ -254,6 +272,17 @@ impl State {
         }
         self.target.labels.check_invariants();
         assert_eq!(
+            self.target.by_round.len(),
+            MAX_ROUNDS,
+            "the target has a slot for each round"
+        );
+        assert!(
+            self.target
+                .best_round
+                .is_none_or(|round| self.target.by_round[round].is_some()),
+            "the round of the cheapest way to the target has a best way of its own"
+        );
+        assert_eq!(
             self.target.best_stop.is_some(),
             self.target.best_round.is_some(),
             "the best target stop and round are recorded together"
@@ -279,6 +308,8 @@ struct Target {
     best_stop: Optional<StopIndex>,
     /// Round that led to the cheapest label.
     best_round: Option<usize>,
+    /// For each round, the stop and label that get to the target soonest in that round.
+    by_round: Box<[Option<(StopIndex, ParetoLabel)>]>,
 }
 
 impl Target {
@@ -287,6 +318,7 @@ impl Target {
             labels: ParetoFront::new(),
             best_stop: Optional::new(StopIndex::NONE),
             best_round: None,
+            by_round: vec![None; MAX_ROUNDS].into_boxed_slice(),
         }
     }
 
@@ -294,15 +326,33 @@ impl Target {
         self.labels.clear();
         self.best_stop = Optional::new(StopIndex::NONE);
         self.best_round = None;
+        self.by_round.fill(None);
     }
 
     /// Adds a label that reaches the target from `stop`, and remembers where it came from if it is
     /// now the cheapest.
     fn offer(&mut self, stop: StopIndex, round: usize, label: ParetoLabel, is_arrival: bool) {
+        let slot = &mut self.by_round[round];
+        let beats = |kept: ParetoLabel| {
+            sooner(label.time, kept.time, is_arrival)
+                || (label.time == kept.time && label.cost < kept.cost)
+        };
+        if slot.is_none_or(|(_, kept)| beats(kept)) {
+            *slot = Some((stop, label));
+        }
         if self.labels.add(label, is_arrival) && label.cost <= self.labels.best_cost() {
             self.best_stop = Optional::new(stop);
             self.best_round = Some(round);
         }
+    }
+}
+
+/// Whether `time` gets there sooner than `other`: earlier going forward, later going back.
+fn sooner(time: Time, other: Time, is_arrival: bool) -> bool {
+    if is_arrival {
+        time > other
+    } else {
+        time < other
     }
 }
 
