@@ -146,6 +146,10 @@ pub struct RaptorQuery<'a> {
     pub transit_penalty: f64,
     pub transfer_penalty: f64,
     pub walk_penalty: f64,
+    /// A fixed cost, in weighted seconds, for every vehicle boarded. It makes a journey with
+    /// fewer vehicles beat one that is a little faster but changes more, whether the change is at
+    /// the same stop or not. `0.0` ranks journeys by their weighted time alone.
+    pub boarding_penalty: f64,
 }
 
 impl<'a> RaptorQuery<'a> {
@@ -174,6 +178,7 @@ impl<'a> RaptorQuery<'a> {
             transit_penalty: 1.0,
             transfer_penalty: 1.5,
             walk_penalty: 2.0,
+            boarding_penalty: 180.0,
         }
     }
 
@@ -192,6 +197,13 @@ impl<'a> RaptorQuery<'a> {
     #[must_use]
     pub const fn with_date(mut self, date: Date) -> Self {
         self.date = date;
+        self
+    }
+
+    /// Sets the fixed cost of boarding a vehicle, see [`Self::boarding_penalty`].
+    #[must_use]
+    pub const fn with_boarding_penalty(mut self, penalty: f64) -> Self {
+        self.boarding_penalty = penalty;
         self
     }
 

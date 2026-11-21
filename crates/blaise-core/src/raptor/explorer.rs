@@ -262,7 +262,8 @@ impl<'a> Explorer<'a> {
         let (trip, day) = self.find_earliest_trip(pattern, position, label.time)?;
         let candidate = self.departure(trip, day, position)?;
         let wait = f64::from(candidate.actual.0 - label.time.0);
-        let cost = f64::from(label.cost) + wait * self.query.transit_penalty;
+        let cost = wait.mul_add(self.query.transit_penalty, f64::from(label.cost))
+            + self.query.boarding_penalty;
 
         // An earlier departure wins, and so does a cheaper way to the same one.
         let better = candidate.actual < current_departure
@@ -294,7 +295,8 @@ impl<'a> Explorer<'a> {
         let (trip, day) = self.find_latest_trip(pattern, position, label.time)?;
         let candidate = self.arrival(trip, day, position)?;
         let wait = f64::from(label.time.0 - candidate.actual.0);
-        let cost = f64::from(label.cost) + wait * self.query.transit_penalty;
+        let cost = wait.mul_add(self.query.transit_penalty, f64::from(label.cost))
+            + self.query.boarding_penalty;
 
         let better = candidate.actual > current_arrival
             || ride.is_none_or(|ride| candidate.actual == current_arrival && cost < ride.cost);
