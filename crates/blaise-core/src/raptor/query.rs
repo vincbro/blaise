@@ -10,7 +10,7 @@ use jiff::ZonedDateTime;
 
 use crate::{
     Result,
-    raptor::{self, Day, LiveTime, itinerary::Itinerary, state::State},
+    raptor::{self, Day, LiveTime, itinerary::Itinerary, journeys::Journeys, state::State},
     spatial::SpatialGrid,
 };
 
@@ -273,6 +273,21 @@ impl<'a> RaptorQuery<'a> {
         state: &mut State,
     ) -> Result<Itinerary> {
         raptor::solve(self, consumer, spatial, state)
+    }
+
+    /// Plans the journey and returns it as the set of journeys found, to pick from.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no route reaches the destination.
+    pub fn journeys(
+        self,
+        consumer: &Consumer<'_>,
+        spatial: &SpatialGrid,
+        state: &mut State,
+    ) -> Result<Journeys> {
+        self.solve(consumer, spatial, state)
+            .map(|itinerary| Journeys::new(vec![itinerary]))
     }
 
     /// The live data for trips on `day`. A `Realtime` made for a service date describes that date

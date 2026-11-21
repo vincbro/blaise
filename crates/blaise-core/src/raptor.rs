@@ -17,6 +17,7 @@ use crate::{
 
 mod explorer;
 pub mod itinerary;
+pub mod journeys;
 mod pareto;
 pub mod query;
 pub mod state;

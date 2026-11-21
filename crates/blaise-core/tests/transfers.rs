@@ -4,8 +4,11 @@ mod common;
 
 #[cfg(test)]
 mod tests {
-    use blaise_core::raptor::query::QueryLocation;
-    use flatnet_core::consumer::Consumer;
+    use blaise_core::{
+        raptor::{itinerary::Itinerary, journeys::Journeys, query::QueryLocation, state::State},
+        spatial::SpatialGrid,
+    };
+    use flatnet_core::{consumer::Consumer, models::Duration};
 
     use crate::common::{self, query, rides, solve, stop};
 
@@ -86,6 +89,81 @@ mod tests {
             rides_with_boarding_penalty(1000.0),
             1,
             "the direct trip is slower but changes nothing"
+        );
+    }
+
+    fn itinerary_with_boarding_penalty(penalty: f64) -> Itinerary {
+        let (_file, mmap) = direct_or_change();
+        let consumer = Consumer::new(&mmap).expect("a valid file");
+        let query = query(
+            QueryLocation::Stop(stop(&consumer, "A")),
+            QueryLocation::Stop(stop(&consumer, "C")),
+            None,
+            None,
+        )
+        .with_departure(common::time("08:00:00"))
+        .with_boarding_penalty(penalty);
+        solve(&consumer, query).expect("a route exists")
+    }
+
+    #[test]
+    fn an_itinerary_measures_its_time_rides_and_walking() {
+        let itinerary = itinerary_with_boarding_penalty(0.0);
+
+        assert_eq!(itinerary.rides(), 2, "T2 and T3");
+        assert_eq!(itinerary.changes(), 1, "one change at B");
+        assert_eq!(itinerary.duration(), Duration(1200), "08:00 to 08:20");
+        assert_eq!(itinerary.walking(), Duration(0), "the stops are the ends");
+    }
+
+    #[test]
+    fn the_selectors_pick_by_one_measure_each() {
+        let faster = itinerary_with_boarding_penalty(0.0);
+        let direct = itinerary_with_boarding_penalty(1000.0);
+        let journeys = Journeys {
+            itineraries: vec![direct, faster].into_boxed_slice(),
+        };
+
+        let rides = |found: Option<&Itinerary>| found.map(Itinerary::rides);
+
+        assert_eq!(
+            rides(journeys.fastest()),
+            Some(2),
+            "the change saves ten minutes"
+        );
+        assert_eq!(
+            rides(journeys.earliest_arrival()),
+            Some(2),
+            "the change arrives first"
+        );
+        assert_eq!(
+            rides(journeys.fewest_changes()),
+            Some(1),
+            "the direct trip boards once"
+        );
+    }
+
+    #[test]
+    fn journeys_holds_what_a_search_found() {
+        let (_file, mmap) = direct_or_change();
+        let consumer = Consumer::new(&mmap).expect("a valid file");
+        let query = query(
+            QueryLocation::Stop(stop(&consumer, "A")),
+            QueryLocation::Stop(stop(&consumer, "C")),
+            None,
+            None,
+        );
+        let spatial = SpatialGrid::new(&consumer);
+        let mut state = State::new(&consumer);
+
+        let journeys = query
+            .journeys(&consumer, &spatial, &mut state)
+            .expect("a route exists");
+
+        assert_eq!(
+            journeys.itineraries.len(),
+            1,
+            "one search finds one journey for now"
         );
     }
 }

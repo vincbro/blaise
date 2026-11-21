@@ -2,7 +2,7 @@ use std::ops::RangeInclusive;
 
 use flatnet_core::{
     consumer::Consumer,
-    models::{Date, Distance, Optional, StopIndex, Time, TripIndex},
+    models::{Date, Distance, Duration, Optional, StopIndex, Time, TripIndex},
 };
 
 use crate::{
@@ -128,6 +128,63 @@ impl Itinerary {
             to,
             legs: legs.into_boxed_slice(),
         })
+    }
+
+    /// When the journey leaves, or `None` for a journey with no legs.
+    #[must_use]
+    pub fn departure(&self) -> Option<LiveTime> {
+        self.legs.first().map(|leg| leg.departure_time)
+    }
+
+    /// When the journey arrives, or `None` for a journey with no legs.
+    #[must_use]
+    pub fn arrival(&self) -> Option<LiveTime> {
+        self.legs.last().map(|leg| leg.arrival_time)
+    }
+
+    /// How long the journey takes from the first departure to the last arrival, as it is
+    /// expected to run.
+    #[must_use]
+    pub fn duration(&self) -> Duration {
+        match (self.departure(), self.arrival()) {
+            (Some(departure), Some(arrival)) => {
+                Duration(arrival.actual.0.saturating_sub(departure.actual.0))
+            }
+            _ => Duration(0),
+        }
+    }
+
+    /// How many vehicles the journey boards.
+    #[must_use]
+    pub fn rides(&self) -> usize {
+        self.legs
+            .iter()
+            .filter(|leg| matches!(leg.leg_type, LegType::Transit(_)))
+            .count()
+    }
+
+    /// How many times the journey changes vehicle: one less than its rides, and none for a
+    /// journey that rides nothing.
+    #[must_use]
+    pub fn changes(&self) -> usize {
+        self.rides().saturating_sub(1)
+    }
+
+    /// How long the journey spends walking, including the walk at either end.
+    #[must_use]
+    pub fn walking(&self) -> Duration {
+        let seconds = self
+            .legs
+            .iter()
+            .filter(|leg| matches!(leg.leg_type, LegType::Walk))
+            .map(|leg| {
+                leg.arrival_time
+                    .actual
+                    .0
+                    .saturating_sub(leg.departure_time.actual.0)
+            })
+            .sum();
+        Duration(seconds)
     }
 
     /// Moves the legs from the search clock, which starts a day before the query's date, to the
