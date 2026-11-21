@@ -32,6 +32,7 @@ List the files in scope and send each to its language:
 |---|---|
 | `*.rs`, `Cargo.toml`, `Cargo.lock` | `code-standards/rust/REVIEW.md` |
 | `*.ts`, `*.tsx`, `package.json`, `tsconfig.json`, `eslint.config.*` | `code-standards/typescript/REVIEW.md` |
+| `*.swift`, `Package.swift`, `Package.resolved`, `.swiftlint.yml`, `.swift-format` | `code-standards/swift/REVIEW.md` |
 
 A language's `REVIEW.md` is the whole procedure for it: which rules, how to check them, what to report. For each language that has files in scope, read its `REVIEW.md` and follow it on those files only, with the scope from step 2 and the instruction to **return findings and its rule checklist without asking** the question at its end. If the harness can run a skill or subagent per language, use it, otherwise follow the file yourself.
 
