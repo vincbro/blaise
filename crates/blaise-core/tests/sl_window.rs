@@ -84,4 +84,57 @@ mod tests {
             "an hour on a commuter line has several departures"
         );
     }
+
+    #[allow(
+        unsafe_code,
+        reason = "mapping a file is unsafe in memmap2, and this file is not modified"
+    )]
+    #[test]
+    fn alternatives_on_the_stockholm_network_differ_in_their_main_vehicle() {
+        let path = env::var_os("BLAISE_SL").map_or_else(
+            || Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/sl.flnt"),
+            PathBuf::from,
+        );
+        let Ok(file) = File::open(path) else {
+            return;
+        };
+        // SAFETY: the file is only read, and nothing else changes it while the test runs.
+        let mmap = unsafe { Mmap::map(&file) }.expect("the file maps");
+        let consumer = match Consumer::new(&mmap) {
+            Ok(consumer) => consumer,
+            // A file compiled by an older flatnet is not one this test can read.
+            Err(ConsumerError::UnsupportedVersion { .. }) => return,
+            Err(error) => panic!("the network is not valid: {error}"),
+        };
+        let query = RaptorQuery::new(
+            QueryLocation::Coordinate((59.5836, 17.8938).into()),
+            QueryLocation::Coordinate((59.3397, 18.0371).into()),
+        )
+        .with_date(Date::parse_gtfs("20261125").expect("a valid date"))
+        .with_departure(Time::from_hms("07:30:00").expect("a time"));
+        let spatial = SpatialGrid::new(&consumer);
+        let mut state = State::new(&consumer);
+
+        let started = Instant::now();
+        let journeys = query
+            .alternatives(4, &consumer, &spatial, &mut state)
+            .expect("journeys exist");
+        eprintln!(
+            "{} alternatives in {:?}",
+            journeys.itineraries.len(),
+            started.elapsed()
+        );
+        for itinerary in &journeys.itineraries {
+            eprintln!(
+                "arrive {:?} rides {}",
+                itinerary.arrival().map(|time| time.actual.0),
+                itinerary.rides()
+            );
+        }
+
+        assert!(
+            journeys.itineraries.len() > 1,
+            "there is more than one way from Märsta to the centre"
+        );
+    }
 }

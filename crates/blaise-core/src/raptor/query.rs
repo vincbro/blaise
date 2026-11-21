@@ -150,6 +150,8 @@ pub struct RaptorQuery<'a> {
     /// fewer vehicles beat one that is a little faster but changes more, whether the change is at
     /// the same stop or not. `0.0` ranks journeys by their weighted time alone.
     pub boarding_penalty: f64,
+    /// Trip patterns the journey must not ride, such as the vehicles of one found already.
+    pub banned_patterns: Vec<TripPatternIndex>,
 }
 
 impl<'a> RaptorQuery<'a> {
@@ -179,6 +181,7 @@ impl<'a> RaptorQuery<'a> {
             transfer_penalty: 1.5,
             walk_penalty: 2.0,
             boarding_penalty: 180.0,
+            banned_patterns: Vec::new(),
         }
     }
 
@@ -290,6 +293,22 @@ impl<'a> RaptorQuery<'a> {
         raptor::solve_all(self, consumer, spatial, state).map(Journeys::new)
     }
 
+    /// Plans the journey, then again without the vehicles that carried it the longest, and so on,
+    /// and returns up to `count` journeys that differ in how they get there, best first.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no route reaches the destination.
+    pub fn alternatives(
+        self,
+        count: usize,
+        consumer: &Consumer<'_>,
+        spatial: &SpatialGrid,
+        state: &mut State,
+    ) -> Result<Journeys> {
+        raptor::solve_alternatives(&self, count, consumer, spatial, state).map(Journeys::new)
+    }
+
     /// Plans the journey from the departure time and again from each later time up to `window`
     /// after it, and returns the journeys none of which another beats: one that leaves later,
     /// arrives sooner and boards no more vehicles. They come in order of leaving.
@@ -313,6 +332,22 @@ impl<'a> RaptorQuery<'a> {
             origin: self.origin.clone(),
             destination: self.destination.clone(),
             time_direction: TimeDirection::Departure(time),
+            banned_patterns: self.banned_patterns.clone(),
+            ..*self
+        }
+    }
+
+    /// The same journey that also avoids `patterns`.
+    pub(crate) fn avoiding(&self, patterns: &[TripPatternIndex]) -> Self {
+        Self {
+            origin: self.origin.clone(),
+            destination: self.destination.clone(),
+            banned_patterns: self
+                .banned_patterns
+                .iter()
+                .chain(patterns)
+                .copied()
+                .collect(),
             ..*self
         }
     }

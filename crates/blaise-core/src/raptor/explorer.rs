@@ -311,8 +311,14 @@ impl<'a> Explorer<'a> {
     /// The trips of a pattern that run on one of the days the search covers, each with the day.
     fn runs(&self, pattern: TripPatternIndex) -> impl Iterator<Item = (TripIndex, Day)> + 'a {
         let (consumer, query) = (self.consumer, self.query);
-        let trips = consumer.iter_trips_in_trip_pattern(pattern);
-        trips.flat_map(move |trip| {
+        let banned = query.banned_patterns.contains(&pattern);
+        let indices = if banned {
+            &[]
+        } else {
+            consumer.trips_in_trip_pattern(pattern)
+        };
+        indices.iter().flat_map(move |&index| {
+            let trip = consumer.trip(index);
             Day::ALL.into_iter().filter_map(move |day| {
                 let date = query.service_date(day)?;
                 consumer

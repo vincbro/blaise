@@ -2,7 +2,7 @@ use std::ops::RangeInclusive;
 
 use flatnet_core::{
     consumer::Consumer,
-    models::{Date, Distance, Duration, Optional, StopIndex, Time, TripIndex},
+    models::{Date, Distance, Duration, Optional, StopIndex, Time, TripIndex, TripPatternIndex},
 };
 
 use crate::{
@@ -139,6 +139,23 @@ impl Itinerary {
             to,
             legs: legs.into_boxed_slice(),
         }
+    }
+
+    /// The trip pattern the journey spends the longest riding, if it rides at all.
+    pub(crate) fn main_pattern(&self, consumer: &Consumer<'_>) -> Option<TripPatternIndex> {
+        self.legs
+            .iter()
+            .filter_map(|leg| match leg.leg_type {
+                LegType::Transit(trip) => Some((leg, trip)),
+                _ => None,
+            })
+            .max_by_key(|(leg, _)| {
+                leg.arrival_time
+                    .actual
+                    .0
+                    .saturating_sub(leg.departure_time.actual.0)
+            })
+            .map(|(_, trip)| consumer.trip_pattern_by_trip(trip).index)
     }
 
     /// The latest time, in seconds from midnight of `base`, the rider can leave the start and

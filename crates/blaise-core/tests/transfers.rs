@@ -203,4 +203,38 @@ mod tests {
             "changing at B arrives with the direct ride, so only that is found"
         );
     }
+
+    fn alternatives(count: usize) -> Vec<usize> {
+        let (_file, mmap) = direct_or_change();
+        let consumer = Consumer::new(&mmap).expect("a valid file");
+        let query = query(
+            QueryLocation::Stop(stop(&consumer, "A")),
+            QueryLocation::Stop(stop(&consumer, "C")),
+            None,
+            None,
+        )
+        .with_departure(common::time("08:00:00"));
+        let spatial = SpatialGrid::new(&consumer);
+        let mut state = State::new(&consumer);
+
+        let journeys = query
+            .alternatives(count, &consumer, &spatial, &mut state)
+            .expect("a route exists");
+
+        journeys.itineraries.iter().map(Itinerary::rides).collect()
+    }
+
+    #[test]
+    fn alternatives_are_the_best_then_what_avoids_its_main_vehicle() {
+        assert_eq!(
+            alternatives(5),
+            [2, 1],
+            "the change first, then the direct trip once T3 is banned, then nothing is left"
+        );
+    }
+
+    #[test]
+    fn alternatives_stop_at_the_count_asked_for() {
+        assert_eq!(alternatives(1), [2], "only the best was asked for");
+    }
 }

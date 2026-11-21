@@ -1,6 +1,6 @@
 use flatnet_core::{
     consumer::Consumer,
-    models::{Coordinate, Delay, Duration, Sentinel, StopIndex, Time},
+    models::{Coordinate, Delay, Duration, Sentinel, StopIndex, Time, TripPatternIndex},
 };
 
 use crate::{
@@ -202,12 +202,7 @@ pub fn solve_all(
         .collect();
     let mut found: Vec<Itinerary> = Vec::with_capacity(departures.len());
     for departure in departures {
-        let forward_query = RaptorQuery {
-            origin: query.origin.clone(),
-            destination: query.destination.clone(),
-            time_direction: TimeDirection::Departure(departure),
-            ..query
-        };
+        let forward_query = query.leaving_at(departure);
         state.reset();
         run_rounds(&forward_query, consumer, spatial, state);
         for (stop, round) in state.round_targets(false) {
@@ -220,6 +215,35 @@ pub fn solve_all(
                 found.push(itinerary);
             }
         }
+    }
+    if found.is_empty() {
+        return Err(Error::NoRoute);
+    }
+    Ok(found)
+}
+
+/// Up to `count` journeys, the best first, each found without the main vehicle of those before.
+pub fn solve_alternatives(
+    query: &RaptorQuery<'_>,
+    count: usize,
+    consumer: &Consumer<'_>,
+    spatial: &SpatialGrid,
+    state: &mut State,
+) -> Result<Vec<Itinerary>> {
+    let mut banned: Vec<TripPatternIndex> = Vec::new();
+    let mut found: Vec<Itinerary> = Vec::with_capacity(count);
+    while found.len() < count {
+        state.reset();
+        let Ok(itinerary) = solve(query.avoiding(&banned), consumer, spatial, state) else {
+            break;
+        };
+        let main = itinerary.main_pattern(consumer);
+        found.push(itinerary);
+        // A journey with no vehicle has nothing to avoid, so asking again would repeat it.
+        let Some(main) = main else {
+            break;
+        };
+        banned.push(main);
     }
     if found.is_empty() {
         return Err(Error::NoRoute);
