@@ -10,23 +10,34 @@ pub(crate) fn narrow_cost(cost: f64) -> f32 {
     cost as f32
 }
 
-/// A time at a stop and what it cost to get there.
+/// Where a label sits in the search's record of how stops were reached.
+pub(crate) type NodeId = u32;
+
+/// The node of a label that has not been recorded, such as one built to compare against.
+pub(crate) const NO_NODE: NodeId = NodeId::MAX;
+
+/// A time at a stop and what it cost to get there, and the node that says how it was reached.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub(crate) struct ParetoLabel {
     pub time: Time,
     pub cost: f32,
+    pub node: NodeId,
 }
 
 impl ParetoLabel {
-    /// The worst label a stop can have, for a stop nothing reaches.
-    pub(crate) const UNREACHED: Self = Self {
-        time: Time(0),
-        cost: f32::MAX,
-    };
-
     #[must_use]
     pub(crate) const fn new(time: Time, cost: f32) -> Self {
-        Self { time, cost }
+        Self {
+            time,
+            cost,
+            node: NO_NODE,
+        }
+    }
+
+    /// The same label, reached the way `node` says.
+    #[must_use]
+    pub(crate) const fn with_node(self, node: NodeId) -> Self {
+        Self { node, ..self }
     }
 
     /// The label after `walk` more of walking, which costs `penalty` for every second: later going
@@ -39,7 +50,7 @@ impl ParetoLabel {
             self.time + walk
         };
         let cost = f64::from(walk.0).mul_add(penalty, f64::from(self.cost));
-        Self::new(time, narrow_cost(cost))
+        Self::new(time, narrow_cost(cost)).with_node(self.node)
     }
 }
 
@@ -133,15 +144,6 @@ impl ParetoFront {
             .fold(f32::MAX, |best, label| best.min(label.cost))
     }
 
-    /// The label with the lowest cost.
-    #[must_use]
-    pub(crate) fn cheapest(&self) -> Option<ParetoLabel> {
-        self.0
-            .iter()
-            .min_by(|first, second| first.cost.total_cmp(&second.cost))
-            .copied()
-    }
-
     pub(crate) fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
@@ -231,11 +233,7 @@ mod tests {
     }
 
     #[test]
-    fn a_front_with_no_labels_has_no_cheapest() {
-        assert!(
-            ParetoFront::new().cheapest().is_none(),
-            "nothing to choose from"
-        );
+    fn a_front_with_no_labels_costs_the_most() {
         assert_eq!(
             ParetoFront::new().best_cost(),
             f32::MAX,

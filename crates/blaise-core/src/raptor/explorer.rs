@@ -7,7 +7,7 @@ use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIter
 use crate::{
     raptor::{
         self, Day, LiveTime, PatternPosition,
-        pareto::{self, ParetoLabel},
+        pareto::{self, NodeId, ParetoLabel},
         query::{RaptorQuery, StopTime},
         state::State,
         update::{Parent, StepKind, Update},
@@ -26,6 +26,8 @@ struct Ride {
     day: Day,
     position: PatternPosition,
     cost: f64,
+    /// The node of the label the ride was boarded from.
+    previous: NodeId,
 }
 
 /// A move from the stop a label is at to another stop on foot or by a listed transfer.
@@ -196,6 +198,7 @@ impl<'a> Explorer<'a> {
                 departure_time: departure,
                 arrival_time: arrival,
             },
+            ride.previous,
         ));
     }
 
@@ -241,6 +244,7 @@ impl<'a> Explorer<'a> {
                 departure_time: departure,
                 arrival_time: arrival,
             },
+            ride.previous,
         ));
     }
 
@@ -274,6 +278,7 @@ impl<'a> Explorer<'a> {
             day,
             position,
             cost,
+            previous: label.node,
         })
     }
 
@@ -305,6 +310,7 @@ impl<'a> Explorer<'a> {
             day,
             position,
             cost,
+            previous: label.node,
         })
     }
 
@@ -495,6 +501,7 @@ fn relax_forward(state: &State, buffer: &mut Vec<Update>, label: ParetoLabel, ho
             LiveTime::scheduled_only(label.time),
             LiveTime::scheduled_only(arrival),
         ),
+        label.node,
     ));
 }
 
@@ -517,6 +524,7 @@ fn relax_back(state: &State, buffer: &mut Vec<Update>, label: ParetoLabel, hop: 
             LiveTime::scheduled_only(departure),
             LiveTime::scheduled_only(label.time),
         ),
+        label.node,
     ));
 }
 

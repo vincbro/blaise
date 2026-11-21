@@ -9,10 +9,10 @@ use crate::{
     Error, Result,
     raptor::{
         DAY_SECONDS, Day, LiveTime,
-        pareto::ParetoLabel,
+        pareto::{NodeId, ParetoLabel},
         query::{Location, RaptorQuery, StopTime, TimeDirection},
         state::State,
-        update::Parent,
+        update::{Node, Parent},
     },
 };
 
@@ -71,14 +71,6 @@ pub struct Itinerary {
     pub legs: Box<[Leg]>,
 }
 
-/// Where a trace back through the parents has got to.
-#[derive(Debug, Clone, Copy)]
-struct Cursor {
-    stop: StopIndex,
-    round: usize,
-    finished: bool,
-}
-
 /// What it takes to read an itinerary back out of a finished search.
 struct Trace<'a> {
     query: &'a RaptorQuery<'a>,
@@ -92,17 +84,17 @@ impl Itinerary {
         state: &State,
         consumer: &Consumer<'_>,
     ) -> Result<Self> {
-        let (best_stop, best_round) = state.best_target().ok_or(Error::NoRoute)?;
-        Ok(Self::at(query, state, consumer, best_stop, best_round))
+        let target = state.best_target().ok_or(Error::NoRoute)?;
+        Ok(Self::at(query, state, consumer, target))
     }
 
-    /// The itinerary that ends at `best_stop` in `best_round` of a finished search.
+    /// The itinerary that ends at `target`, a label that reaches the destination in a finished
+    /// search.
     pub(crate) fn at(
         query: &RaptorQuery<'_>,
         state: &State,
         consumer: &Consumer<'_>,
-        best_stop: StopIndex,
-        best_round: usize,
+        target: ParetoLabel,
     ) -> Self {
         let trace = Trace {
             query,
@@ -110,10 +102,12 @@ impl Itinerary {
             consumer,
         };
 
-        let mut legs = Vec::with_capacity((best_round * 2) + 2);
-        legs.extend(trace.outer_walk(best_stop));
-        let current_stop = trace.walk_back(best_stop, best_round, &mut legs);
-        legs.extend(trace.inner_walk(current_stop));
+        let mut legs = Vec::with_capacity(8);
+        let best_stop = state.node(target.node).stop;
+        legs.extend(trace.outer_walk(target));
+        let origin = trace.walk_back(target.node, &mut legs);
+        legs.extend(trace.inner_walk(origin));
+        let current_stop = state.node(origin).stop;
 
         // A departure search is traced back from the destination, so its legs come out last-first.
         // An arrival search is traced from the origin, which is already the order of travel.
@@ -278,7 +272,9 @@ impl Itinerary {
 
 impl Trace<'_> {
     /// The walk between the stop the search ended at and the far end of the journey, if they differ.
-    fn outer_walk(&self, best_stop: StopIndex) -> Option<Leg> {
+    fn outer_walk(&self, target: ParetoLabel) -> Option<Leg> {
+        let node = self.state.node(target.node);
+        let best_stop = node.stop;
         let (from, to) = match self.query.time_direction {
             TimeDirection::Departure(_) => (
                 Location::Stop(best_stop),
@@ -293,67 +289,51 @@ impl Trace<'_> {
             return None;
         }
 
-        let stop_label = self
-            .state
-            .cheapest_label(best_stop)
-            .unwrap_or(ParetoLabel::UNREACHED);
-        let target_label = self.state.cheapest_target_label().unwrap_or(stop_label);
         let (departure, arrival) = match self.query.time_direction {
-            TimeDirection::Departure(_) => (stop_label, target_label),
-            TimeDirection::Arrival(_) => (target_label, stop_label),
+            TimeDirection::Departure(_) => (node.time, target.time),
+            TimeDirection::Arrival(_) => (target.time, node.time),
         };
-        Some(walk_leg(from, to, departure.time, arrival.time))
+        Some(walk_leg(from, to, departure, arrival))
     }
 
     /// The walk between the journey's near end and the first stop the search left, if they differ.
-    fn inner_walk(&self, current_stop: StopIndex) -> Option<Leg> {
-        let label = self
-            .state
-            .cheapest_label(current_stop)
-            .unwrap_or(ParetoLabel::UNREACHED);
+    fn inner_walk(&self, origin: NodeId) -> Option<Leg> {
+        let node = self.state.node(origin);
+        let current_stop = node.stop;
         let (from, to, departure, arrival) = match self.query.time_direction {
             TimeDirection::Departure(departure) => (
                 self.query.origin.resolve(current_stop),
                 Location::Stop(current_stop),
                 departure,
-                label.time,
+                node.time,
             ),
             TimeDirection::Arrival(arrival) => (
                 Location::Stop(current_stop),
                 self.query.destination.resolve(current_stop),
-                label.time,
+                node.time,
                 arrival,
             ),
         };
         (from != to).then(|| walk_leg(from, to, departure, arrival))
     }
 
-    /// Follows the parents from the stop the search ended at back to where it began, adding a leg
-    /// for each, and returns the stop it reached.
-    fn walk_back(&self, best_stop: StopIndex, best_round: usize, legs: &mut Vec<Leg>) -> StopIndex {
-        let mut cursor = Cursor {
-            stop: best_stop,
-            round: best_round,
-            finished: false,
-        };
-        // A stop reachable straight from the origin needs no walks or transfers before it.
-        while !cursor.finished && !self.is_reachable_from_origin(cursor.stop) {
-            self.follow_parent(&mut cursor, legs);
+    /// Follows the nodes from the label the search ended with back to where it began, adding a
+    /// leg for each, and returns the node it began at.
+    fn walk_back(&self, target: NodeId, legs: &mut Vec<Leg>) -> NodeId {
+        let mut id = target;
+        loop {
+            let node = self.state.node(id);
+            if matches!(node.parent, Parent::Origin) {
+                return id;
+            }
+            self.follow_parent(node, legs);
+            id = node.previous;
         }
-        cursor.stop
     }
 
-    fn is_reachable_from_origin(&self, stop: StopIndex) -> bool {
-        matches!(self.state.parent(0, stop), Some(Parent::Origin))
-    }
-
-    /// Adds the leg that led to the cursor's stop and moves the cursor to where the leg started.
-    fn follow_parent(&self, cursor: &mut Cursor, legs: &mut Vec<Leg>) {
-        let parent = self
-            .state
-            .parent(cursor.round, cursor.stop)
-            .expect("every label on the path was found with a parent");
-        match parent {
+    /// Adds the leg that led to the node's stop.
+    fn follow_parent(&self, node: &Node, legs: &mut Vec<Leg>) {
+        match node.parent {
             Parent::Transit {
                 boarding_position,
                 alighting_position,
@@ -363,46 +343,35 @@ impl Trace<'_> {
                 arrival_time,
             } => {
                 let positions = boarding_position.as_usize()..=alighting_position.as_usize();
-                self.follow_transit(
-                    cursor,
-                    legs,
-                    (trip, day),
-                    positions,
-                    [departure_time, arrival_time],
-                );
+                self.follow_transit(legs, (trip, day), positions, [departure_time, arrival_time]);
             }
             Parent::Transfer {
                 from_stop,
                 departure_time,
                 arrival_time,
-            }
-            | Parent::Walk {
+            } => legs.push(self.step_leg(
+                node.stop,
+                from_stop,
+                [departure_time, arrival_time],
+                LegType::Transfer,
+            )),
+            Parent::Walk {
                 from_stop,
                 departure_time,
                 arrival_time,
-            } => {
-                let leg_type = if matches!(parent, Parent::Transfer { .. }) {
-                    LegType::Transfer
-                } else {
-                    LegType::Walk
-                };
-                legs.push(self.step_leg(
-                    cursor.stop,
-                    from_stop,
-                    [departure_time, arrival_time],
-                    leg_type,
-                ));
-                cursor.stop = from_stop;
-            }
-            Parent::Origin => cursor.finished = true,
+            } => legs.push(self.step_leg(
+                node.stop,
+                from_stop,
+                [departure_time, arrival_time],
+                LegType::Walk,
+            )),
+            Parent::Origin => {}
         }
     }
 
-    /// Adds a ride, and moves the cursor to the stop it was boarded at going forward, or left at
-    /// going back, and one round earlier.
+    /// Adds a ride.
     fn follow_transit(
         &self,
-        cursor: &mut Cursor,
         legs: &mut Vec<Leg>,
         (trip, day): (TripIndex, Day),
         positions: RangeInclusive<usize>,
@@ -430,16 +399,6 @@ impl Trace<'_> {
             stops: leg_stops,
             leg_type: LegType::Transit(trip),
         });
-
-        cursor.stop = if self.query.is_arrival() {
-            alighting
-        } else {
-            boarding
-        };
-        match cursor.round.checked_sub(1) {
-            Some(round) => cursor.round = round,
-            None => cursor.finished = true,
-        }
     }
 
     /// A transfer or a walk between `stop` and `from_stop`, in the direction the search ran.

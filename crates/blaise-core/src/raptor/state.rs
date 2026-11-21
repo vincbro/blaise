@@ -7,8 +7,8 @@ use flatnet_core::{
 
 use crate::raptor::{
     MAX_ROUNDS, PatternPosition,
-    pareto::{ParetoFront, ParetoLabel},
-    update::{Parent, Update},
+    pareto::{NO_NODE, NodeId, ParetoFront, ParetoLabel},
+    update::{Node, Parent, Update},
 };
 
 /// The most stops a network can have for `check_invariants` to read every table on each call.
@@ -18,12 +18,11 @@ const CHECK_LIMIT: usize = 2_000;
 ///
 /// After every public call:
 /// - The per-stop tables have one entry per stop of the consumer it was built from.
-/// - There is one parent slot per stop for each round, plus one spare.
+/// - Every label points at a node, and every node points at an earlier one or at none, so a
+///   label's way back ends at the origin.
 /// - Every front is a set of labels none of which beats another.
 /// - A marked stop has a label.
-/// - The target has a best stop exactly when it has a best round, and that round is one of the
-///   search's.
-/// - The target has a slot for each round, and the best round's slot is filled.
+/// - The target has a slot for each round.
 #[derive(Debug)]
 pub struct State {
     /// Best labels per stop, accumulated across all rounds.
@@ -41,7 +40,8 @@ pub struct State {
     /// The stops that lead to the target, and how long the rest of the way takes.
     target_stops: Vec<(StopIndex, Duration)>,
 
-    parents: Box<[Option<Parent>]>,
+    /// How each label was reached, in the order they were found.
+    nodes: Vec<Node>,
     stop_count: usize,
 }
 
@@ -62,7 +62,7 @@ impl State {
             .into_boxed_slice(),
             target: Target::new(),
             target_stops: Vec::new(),
-            parents: vec![None; stop_count * MAX_ROUNDS + 1].into_boxed_slice(),
+            nodes: Vec::new(),
             stop_count,
         };
         state.check_invariants();
@@ -83,17 +83,16 @@ impl State {
             .fill(Optional::new(PatternPosition::NONE));
         self.target.clear();
         self.target_stops.clear();
-        self.parents.fill(None);
+        self.nodes.clear();
         self.check_invariants();
     }
 
     /// Starts the search at a stop with a label of its own.
     pub(crate) fn seed(&mut self, stop: StopIndex, label: ParetoLabel, is_arrival: bool) {
         self.marked_stops[stop.as_usize()] = true;
+        let label = label.with_node(self.record(stop, label.time, Parent::Origin, NO_NODE));
         self.current_labels[stop.as_usize()].add(label, is_arrival);
         self.tau_star[stop.as_usize()].add(label, is_arrival);
-        let slot = self.parent_slot(0, stop);
-        self.parents[slot] = Some(Parent::Origin);
         self.check_invariants();
     }
 
@@ -148,40 +147,32 @@ impl State {
         &self.active_trip_patterns
     }
 
-    /// The label with the lowest cost at a stop.
-    pub(crate) fn cheapest_label(&self, stop: StopIndex) -> Option<ParetoLabel> {
-        self.tau_star[stop.as_usize()].cheapest()
+    /// The way one label was reached.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `node` is not one this search recorded.
+    pub(crate) fn node(&self, node: NodeId) -> &Node {
+        &self.nodes[node as usize]
     }
 
     /// The label with the lowest cost that reaches the target.
-    pub(crate) fn cheapest_target_label(&self) -> Option<ParetoLabel> {
-        self.target.labels.cheapest()
+    pub(crate) fn best_target(&self) -> Option<ParetoLabel> {
+        self.target.best
     }
 
-    /// The stop and round of the cheapest way to the target, if there is one.
-    pub(crate) fn best_target(&self) -> Option<(StopIndex, usize)> {
-        Some((self.target.best_stop.as_option()?, self.target.best_round?))
-    }
-
-    /// The stop and round of each way to the target that gets there sooner than every way with
-    /// fewer rounds, fewest rounds first.
-    pub(crate) fn round_targets(&self, is_arrival: bool) -> Vec<(StopIndex, usize)> {
-        let mut found: Vec<(StopIndex, usize)> = Vec::new();
+    /// Each way to the target that gets there sooner than every way with fewer rounds, fewest
+    /// rounds first.
+    pub(crate) fn round_targets(&self, is_arrival: bool) -> Vec<ParetoLabel> {
+        let mut found: Vec<ParetoLabel> = Vec::new();
         let mut best: Option<Time> = None;
-        for (round, entry) in self.target.by_round.iter().enumerate() {
-            let Some((stop, label)) = entry else {
-                continue;
-            };
+        for label in self.target.by_round.iter().flatten() {
             if best.is_none_or(|time| sooner(label.time, time, is_arrival)) {
                 best = Some(label.time);
-                found.push((*stop, round));
+                found.push(*label);
             }
         }
         found
-    }
-
-    pub(crate) fn parent(&self, round: usize, stop: StopIndex) -> Option<Parent> {
-        self.parents[self.parent_slot(round, stop)]
     }
 
     /// Makes the labels of the last round the ones to board from, and picks where on each trip
@@ -206,26 +197,34 @@ impl State {
     }
 
     /// Keeps the updates no label already beats, and marks their stops.
-    pub(crate) fn apply_updates(&mut self, round: usize, is_arrival: bool, updates: &[Update]) {
+    pub(crate) fn apply_updates(&mut self, is_arrival: bool, updates: &[Update]) {
         for update in updates {
-            let label = ParetoLabel::new(update.time, update.cost);
             if self.is_dominated(update.stop, update.time, update.cost, is_arrival) {
                 continue;
             }
 
-            // Whether this label becomes the cheapest the stop has this round.
-            let previous_best = self.current_labels[update.stop.as_usize()].best_cost();
+            let node = NodeId::try_from(self.nodes.len()).unwrap_or(NO_NODE);
+            let label = ParetoLabel::new(update.time, update.cost).with_node(node);
             if !self.tau_star[update.stop.as_usize()].add(label, is_arrival) {
                 continue;
             }
+            self.record(update.stop, update.time, update.parent, update.previous);
             self.current_labels[update.stop.as_usize()].add(label, is_arrival);
-            if update.cost <= previous_best {
-                let slot = self.parent_slot(round, update.stop);
-                self.parents[slot] = Some(update.parent);
-            }
             self.marked_stops[update.stop.as_usize()] = true;
         }
         self.check_invariants();
+    }
+
+    /// Notes how a label was reached and returns its node.
+    fn record(&mut self, stop: StopIndex, time: Time, parent: Parent, previous: NodeId) -> NodeId {
+        let node = NodeId::try_from(self.nodes.len()).unwrap_or(NO_NODE);
+        self.nodes.push(Node {
+            stop,
+            time,
+            parent,
+            previous,
+        });
+        node
     }
 
     /// Adds the labels of this round at the target stops to the labels that reach the target.
@@ -233,7 +232,7 @@ impl State {
         for &(stop, rest_of_way) in &self.target_stops {
             for label in self.current_labels[stop.as_usize()].iter() {
                 let reached = label.after_walk(rest_of_way, walk_penalty, is_arrival);
-                self.target.offer(stop, round, reached, is_arrival);
+                self.target.offer(round, reached, is_arrival);
             }
         }
         self.check_invariants();
@@ -259,11 +258,20 @@ impl State {
             self.stop_count,
             "every stop is marked or not"
         );
-        assert_eq!(
-            self.parents.len(),
-            self.stop_count * MAX_ROUNDS + 1,
-            "there is a parent slot for each stop in each round, and a spare"
-        );
+        for (index, node) in self.nodes.iter().enumerate() {
+            assert!(
+                node.previous == NO_NODE || (node.previous as usize) < index,
+                "a node comes from an earlier one, so its way back ends"
+            );
+        }
+        for table in tables {
+            for label in table.iter().flat_map(ParetoFront::iter) {
+                assert!(
+                    (label.node as usize) < self.nodes.len(),
+                    "every label points at a node that was recorded"
+                );
+            }
+        }
         for (stop, &marked) in self.marked_stops.iter().enumerate() {
             assert!(
                 !marked || !self.tau_star[stop].is_empty(),
@@ -276,73 +284,46 @@ impl State {
             MAX_ROUNDS,
             "the target has a slot for each round"
         );
-        assert!(
-            self.target
-                .best_round
-                .is_none_or(|round| self.target.by_round[round].is_some()),
-            "the round of the cheapest way to the target has a best way of its own"
-        );
-        assert_eq!(
-            self.target.best_stop.is_some(),
-            self.target.best_round.is_some(),
-            "the best target stop and round are recorded together"
-        );
-        assert!(
-            self.target
-                .best_round
-                .is_none_or(|round| round < MAX_ROUNDS),
-            "the best round is a round the search runs"
-        );
-    }
-
-    fn parent_slot(&self, round: usize, stop: StopIndex) -> usize {
-        round * self.stop_count + stop.as_usize()
     }
 }
 
-/// The labels that reach the destination, and where the cheapest of them came from.
+/// The labels that reach the destination, and the cheapest of them.
 #[derive(Debug)]
 struct Target {
     labels: ParetoFront,
-    /// Stop that led to the cheapest label.
-    best_stop: Optional<StopIndex>,
-    /// Round that led to the cheapest label.
-    best_round: Option<usize>,
-    /// For each round, the stop and label that get to the target soonest in that round.
-    by_round: Box<[Option<(StopIndex, ParetoLabel)>]>,
+    /// The cheapest label.
+    best: Option<ParetoLabel>,
+    /// For each round, the label that gets to the target soonest in that round.
+    by_round: Box<[Option<ParetoLabel>]>,
 }
 
 impl Target {
     fn new() -> Self {
         Self {
             labels: ParetoFront::new(),
-            best_stop: Optional::new(StopIndex::NONE),
-            best_round: None,
+            best: None,
             by_round: vec![None; MAX_ROUNDS].into_boxed_slice(),
         }
     }
 
     fn clear(&mut self) {
         self.labels.clear();
-        self.best_stop = Optional::new(StopIndex::NONE);
-        self.best_round = None;
+        self.best = None;
         self.by_round.fill(None);
     }
 
-    /// Adds a label that reaches the target from `stop`, and remembers where it came from if it is
-    /// now the cheapest.
-    fn offer(&mut self, stop: StopIndex, round: usize, label: ParetoLabel, is_arrival: bool) {
+    /// Adds a label that reaches the target, and remembers it if it is now the cheapest.
+    fn offer(&mut self, round: usize, label: ParetoLabel, is_arrival: bool) {
         let slot = &mut self.by_round[round];
         let beats = |kept: ParetoLabel| {
             sooner(label.time, kept.time, is_arrival)
                 || (label.time == kept.time && label.cost < kept.cost)
         };
-        if slot.is_none_or(|(_, kept)| beats(kept)) {
-            *slot = Some((stop, label));
+        if slot.is_none_or(beats) {
+            *slot = Some(label);
         }
         if self.labels.add(label, is_arrival) && label.cost <= self.labels.best_cost() {
-            self.best_stop = Optional::new(stop);
-            self.best_round = Some(round);
+            self.best = Some(label);
         }
     }
 }

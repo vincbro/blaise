@@ -5,7 +5,7 @@ use super::State;
 use crate::{
     raptor::{
         MAX_ROUNDS,
-        pareto::ParetoLabel,
+        pareto::{NO_NODE, ParetoLabel},
         update::{Parent, Update},
     },
     spatial::fuzz::position,
@@ -15,23 +15,11 @@ use crate::{
 /// One call on a `State`, with stops given as a fraction of the network's stops.
 #[derive(Debug, Clone)]
 enum Operation {
-    Seed {
-        stop: f64,
-        time: u32,
-        cost: u8,
-    },
-    AddTarget {
-        stop: f64,
-        seconds: u32,
-    },
-    Apply {
-        round: usize,
-        updates: Vec<(f64, u32, u8)>,
-    },
+    Seed { stop: f64, time: u32, cost: u8 },
+    AddTarget { stop: f64, seconds: u32 },
+    Apply { updates: Vec<(f64, u32, u8)> },
     BeginRound,
-    RecordTargets {
-        round: usize,
-    },
+    RecordTargets { round: usize },
     Reset,
 }
 
@@ -46,8 +34,7 @@ fn operation() -> impl Strategy<Value = Operation> {
         }),
         (stop.clone(), 0_u32..100)
             .prop_map(|(stop, seconds)| Operation::AddTarget { stop, seconds }),
-        (0..MAX_ROUNDS, vec(update, 0..12))
-            .prop_map(|(round, updates)| Operation::Apply { round, updates }),
+        vec(update, 0..12).prop_map(|updates| Operation::Apply { updates }),
         Just(Operation::BeginRound),
         (0..MAX_ROUNDS).prop_map(|round| Operation::RecordTargets { round }),
         Just(Operation::Reset),
@@ -92,14 +79,14 @@ proptest! {
                 Operation::AddTarget { stop, seconds } => {
                     state.add_target(stop_at(stop, stop_count), Duration(seconds));
                 }
-                Operation::Apply { round, updates } => {
+                Operation::Apply { updates } => {
                     let updates: Vec<Update> = updates
                         .into_iter()
                         .map(|(stop, time, cost)| {
-                            Update::new(stop_at(stop, stop_count), Time(time), f32::from(cost), Parent::Origin)
+                            Update::new(stop_at(stop, stop_count), Time(time), f32::from(cost), Parent::Origin, NO_NODE)
                         })
                         .collect();
-                    state.apply_updates(round, is_arrival, &updates);
+                    state.apply_updates(is_arrival, &updates);
                     for update in &updates {
                         prop_assert!(
                             state.is_dominated(update.stop, update.time, update.cost, is_arrival),

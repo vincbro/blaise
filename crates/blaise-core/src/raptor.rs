@@ -185,7 +185,7 @@ pub fn solve_all(
     if !query.is_arrival() {
         return Ok(targets
             .into_iter()
-            .map(|(stop, round)| Itinerary::at(&query, state, consumer, stop, round).rebased())
+            .map(|target| Itinerary::at(&query, state, consumer, target).rebased())
             .collect());
     }
 
@@ -195,8 +195,8 @@ pub fn solve_all(
     let deadline = query.time_direction.time();
     let departures: Vec<Time> = targets
         .into_iter()
-        .filter_map(|(stop, round)| {
-            let itinerary = Itinerary::at(&query, state, consumer, stop, round);
+        .filter_map(|target| {
+            let itinerary = Itinerary::at(&query, state, consumer, target);
             Some(itinerary.legs.first()?.departure_time.actual)
         })
         .collect();
@@ -205,8 +205,8 @@ pub fn solve_all(
         let forward_query = query.leaving_at(departure);
         state.reset();
         run_rounds(&forward_query, consumer, spatial, state);
-        for (stop, round) in state.round_targets(false) {
-            let itinerary = Itinerary::at(&forward_query, state, consumer, stop, round);
+        for target in state.round_targets(false) {
+            let itinerary = Itinerary::at(&forward_query, state, consumer, target);
             let in_time = itinerary
                 .arrival()
                 .is_some_and(|arrival| arrival.actual <= deadline);
@@ -346,7 +346,7 @@ fn run_rounds(
 
     seed(query, consumer, spatial, state);
     let updates = explorer.transfers(state);
-    state.apply_updates(0, is_arrival, &updates);
+    state.apply_updates(is_arrival, &updates);
     state.record_targets(0, is_arrival, query.walk_penalty);
 
     for round in 1..MAX_ROUNDS {
@@ -356,9 +356,9 @@ fn run_rounds(
         state.begin_round(consumer, is_arrival);
 
         let updates = explorer.trip_patterns(state);
-        state.apply_updates(round, is_arrival, &updates);
+        state.apply_updates(is_arrival, &updates);
         let updates = explorer.transfers(state);
-        state.apply_updates(round, is_arrival, &updates);
+        state.apply_updates(is_arrival, &updates);
         state.record_targets(round, is_arrival, query.walk_penalty);
     }
 }
