@@ -264,7 +264,7 @@ pub fn solve_window(
         return Err(Error::WindowNeedsDeparture);
     };
     let end = start.0.saturating_add(window.0);
-    let mut found: Vec<(Itinerary, [u32; 2])> = Vec::new();
+    let mut found: Vec<Timed> = Vec::new();
     let mut from = start;
     while from.0 <= end {
         state.reset();
@@ -281,7 +281,11 @@ pub fn solve_window(
             };
             next = next.min(leave.saturating_add(1));
             if leave <= end {
-                found.push((itinerary, [leave, arrive]));
+                found.push(Timed {
+                    itinerary,
+                    leave,
+                    arrive,
+                });
             }
         }
         // A journey with no vehicle leaves when asked, so a later start finds nothing new.
@@ -293,35 +297,50 @@ pub fn solve_window(
     Ok(unbeaten(found))
 }
 
-/// The journeys of `found` that no other beats, in order of leaving. Each has when the rider must
-/// leave and when it arrives.
-fn unbeaten(mut found: Vec<(Itinerary, [u32; 2])>) -> Vec<Itinerary> {
-    let beats = |other: &(Itinerary, [u32; 2]), this: &(Itinerary, [u32; 2])| {
-        let (leave, arrive, rides) = (other.1[0], other.1[1], other.0.rides());
-        let no_worse = leave >= this.1[0] && arrive <= this.1[1] && rides <= this.0.rides();
-        let same = leave == this.1[0] && arrive == this.1[1] && rides == this.0.rides();
-        no_worse && !same
-    };
-    let mut kept: Vec<(Itinerary, [u32; 2])> = Vec::new();
-    for candidate in found.drain(..) {
-        let duplicate = kept
-            .iter()
-            .any(|other| other.1 == candidate.1 && other.0.rides() == candidate.0.rides());
-        if !duplicate {
+/// A journey with when the rider must leave and when it arrives, in seconds from midnight of the
+/// query's date.
+struct Timed {
+    itinerary: Itinerary,
+    leave: u32,
+    arrive: u32,
+}
+
+impl Timed {
+    /// Whether this journey leaves no earlier, arrives no later and boards no more vehicles than
+    /// `other`, and is not the same journey.
+    fn beats(&self, other: &Self) -> bool {
+        let no_worse = self.leave >= other.leave
+            && self.arrive <= other.arrive
+            && self.itinerary.rides() <= other.itinerary.rides();
+        no_worse && !self.is_same_as(other)
+    }
+
+    fn is_same_as(&self, other: &Self) -> bool {
+        self.leave == other.leave
+            && self.arrive == other.arrive
+            && self.itinerary.rides() == other.itinerary.rides()
+    }
+}
+
+/// The journeys of `found` that no other beats, in order of leaving.
+fn unbeaten(found: Vec<Timed>) -> Vec<Itinerary> {
+    let mut kept: Vec<Timed> = Vec::new();
+    for candidate in found {
+        if !kept.iter().any(|other| other.is_same_as(&candidate)) {
             kept.push(candidate);
         }
     }
-    let all: Vec<bool> = kept
+    let is_unbeaten: Vec<bool> = kept
         .iter()
-        .map(|this| !kept.iter().any(|other| beats(other, this)))
+        .map(|this| !kept.iter().any(|other| other.beats(this)))
         .collect();
-    let mut result: Vec<(Itinerary, [u32; 2])> = kept
+    let mut result: Vec<Timed> = kept
         .into_iter()
-        .zip(all)
+        .zip(is_unbeaten)
         .filter_map(|(entry, unbeaten)| unbeaten.then_some(entry))
         .collect();
-    result.sort_by_key(|(itinerary, [leave, _])| (*leave, itinerary.rides()));
-    result.into_iter().map(|(itinerary, _)| itinerary).collect()
+    result.sort_by_key(|timed| (timed.leave, timed.itinerary.rides()));
+    result.into_iter().map(|timed| timed.itinerary).collect()
 }
 
 fn solve_core(

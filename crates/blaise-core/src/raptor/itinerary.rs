@@ -369,7 +369,6 @@ impl Trace<'_> {
         }
     }
 
-    /// Adds a ride.
     fn follow_transit(
         &self,
         legs: &mut Vec<Leg>,

@@ -203,8 +203,7 @@ impl State {
                 continue;
             }
 
-            let node = NodeId::try_from(self.nodes.len()).unwrap_or(NO_NODE);
-            let label = ParetoLabel::new(update.time, update.cost).with_node(node);
+            let label = ParetoLabel::new(update.time, update.cost).with_node(self.next_node());
             if !self.tau_star[update.stop.as_usize()].add(label, is_arrival) {
                 continue;
             }
@@ -215,9 +214,15 @@ impl State {
         self.check_invariants();
     }
 
+    /// The id the next recorded node gets.
+    fn next_node(&self) -> NodeId {
+        NodeId::try_from(self.nodes.len())
+            .expect("a search records fewer nodes than a node id can number")
+    }
+
     /// Notes how a label was reached and returns its node.
     fn record(&mut self, stop: StopIndex, time: Time, parent: Parent, previous: NodeId) -> NodeId {
-        let node = NodeId::try_from(self.nodes.len()).unwrap_or(NO_NODE);
+        let node = self.next_node();
         self.nodes.push(Node {
             stop,
             time,
@@ -291,7 +296,6 @@ impl State {
 #[derive(Debug)]
 struct Target {
     labels: ParetoFront,
-    /// The cheapest label.
     best: Option<ParetoLabel>,
     /// For each round, the label that gets to the target soonest in that round.
     by_round: Box<[Option<ParetoLabel>]>,
