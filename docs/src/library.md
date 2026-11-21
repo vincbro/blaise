@@ -5,7 +5,7 @@ Integrating **blaise** directly as a library allows you to build high-performanc
 ## Installation
 
 ```bash
-cargo add blaise-core gtfs-bin-core memmap2
+cargo add blaise-core flatnet-core memmap2
 ```
 
 ## Core Workflow
@@ -14,10 +14,10 @@ Using the library involves four steps: compiling the feed once, mapping the comp
 
 ### 1. Compiling GTFS Data
 
-Blaise reads networks compiled by [gtfs-bin](https://github.com/vincbro/gtfs-bin). Compile a feed, a directory or a `.zip`, once:
+Blaise reads networks compiled by [flatnet](https://github.com/vincbro/flatnet). Compile a feed, a directory or a `.zip`, once:
 
 ```bash
-gtfs-bin -i transit_data.zip -o network.gtfs
+flatnet -i transit_data.zip -o network.flnt
 ```
 
 ### 2. Mapping the Network
@@ -28,10 +28,10 @@ The `Consumer` reads the compiled file straight from a memory map, so there is n
 use std::fs::File;
 
 use blaise_core::{raptor::state::State, spatial::SpatialGrid};
-use gtfs_bin_core::consumer::Consumer;
+use flatnet_core::consumer::Consumer;
 use memmap2::Mmap;
 
-let file = File::open("network.gtfs")?;
+let file = File::open("network.flnt")?;
 // SAFETY: the file is only read, and nothing modifies it while it is mapped.
 let mmap = unsafe { Mmap::map(&file)? };
 let consumer = Consumer::new(&mmap)?;
@@ -45,7 +45,7 @@ A `RaptorQuery` takes an origin and a destination, each a stop, a list of stops 
 
 ```rust
 use blaise_core::raptor::query::{QueryLocation, RaptorQuery};
-use gtfs_bin_core::models::{Coordinate, Time};
+use flatnet_core::models::{Coordinate, Time};
 
 let from = QueryLocation::Coordinate(Coordinate::new(59.58, 17.89));
 let to = QueryLocation::Coordinate(Coordinate::new(59.34, 18.04));
@@ -66,10 +66,10 @@ println!("Found a path with {} legs!", itinerary.legs.len());
 
 ## Realtime
 
-Build a `Realtime` for the service date with gtfs-bin, apply the feeds you have, and attach it to the query. Canceled trips and skipped stops are never used, and a delayed vehicle is boarded at the time it is expected. Each time in the itinerary is a `LiveTime` with the `scheduled` and `actual` values.
+Build a `Realtime` for the service date with flatnet, apply the feeds you have, and attach it to the query. Canceled trips and skipped stops are never used, and a delayed vehicle is boarded at the time it is expected. Each time in the itinerary is a `LiveTime` with the `scheduled` and `actual` values.
 
 ```rust
-use gtfs_bin_core::rt::{self, Realtime, RealtimeBuilder};
+use flatnet_core::rt::{self, Realtime, RealtimeBuilder};
 
 let mut realtime = Realtime::for_service_date(&consumer, query.date);
 let message = rt::decode_feed(&std::fs::read("TripUpdates.pb")?)?;

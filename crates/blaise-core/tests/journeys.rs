@@ -11,7 +11,7 @@ mod tests {
             query::{Location, QueryLocation},
         },
     };
-    use gtfs_bin_core::{
+    use flatnet_core::{
         consumer::Consumer,
         models::Coordinate,
         rt::{Realtime, RealtimeBuilder},

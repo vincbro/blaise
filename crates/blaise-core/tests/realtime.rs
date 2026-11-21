@@ -12,8 +12,8 @@ mod tests {
         },
         spatial::SpatialGrid,
     };
-    use gtfs_bin_compiler::Compiler;
-    use gtfs_bin_core::{
+    use flatnet_compiler::Compiler;
+    use flatnet_core::{
         consumer::Consumer,
         models::{Date, StopIndex, Time},
         rt::{Realtime, RealtimeBuilder},
@@ -71,7 +71,9 @@ mod tests {
     fn network() -> (NamedTempFile, Mmap) {
         let dir = TempDir::new().expect("a temp dir");
         write_feed(&dir);
-        let bytes = Compiler::new(dir.path()).compile().expect("a valid feed");
+        let bytes = Compiler::new()
+            .compile_gtfs(dir.path())
+            .expect("a valid feed");
         let mut file = NamedTempFile::new().expect("a temp file");
         file.write_all(&bytes).expect("the temp file is writable");
         // SAFETY: the file is private to this test and isn't modified while mapped.
@@ -253,18 +255,16 @@ mod tests {
         let canceled = trip_update("T1", trip_descriptor::ScheduleRelationship::Canceled);
         let mut realtime = Realtime::for_service_date(&consumer, date());
         RealtimeBuilder::new(&consumer).apply([feed(vec![canceled])].into_iter(), &mut realtime);
-        let spatial = SpatialGrid::new(&consumer);
-        let mut state = State::new(&consumer);
-        let query = RaptorQuery::new(
-            QueryLocation::Stop(stop(&consumer, "A")),
-            QueryLocation::Stop(stop(&consumer, "B")),
-        )
-        .with_date(date())
-        .with_departure(Time::from_hms("07:50:00").expect("a time"))
-        .with_realtime(&realtime);
+        let itinerary = plan(&consumer, Some(&realtime), "A", "B", None);
 
-        let result = query.solve(&consumer, &spatial, &mut state);
-
-        assert!(result.is_err(), "T2 can't be left at B, and T1 is canceled");
+        // T2 is today's only trip left, and it lets nobody off at B. The live data is for today,
+        // so tomorrow's T1 is on schedule and is the way to B.
+        assert_eq!(
+            transit_trip(&itinerary, &consumer),
+            "T1",
+            "T2 can't be left at B"
+        );
+        let departure = itinerary.legs[0].departure_time.actual;
+        assert!(departure.0 >= 86_400, "T1 runs tomorrow, not today");
     }
 }

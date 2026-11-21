@@ -29,17 +29,17 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      # gtfs-bin is a path dependency (../gtfs-bin), so it is checked out next to this repository.
+      # flatnet is a path dependency (../flatnet), so it is checked out next to this repository.
       - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           path: blaise
 
-      - name: Check out gtfs-bin
+      - name: Check out flatnet
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          repository: vincbro/gtfs-bin
-          path: gtfs-bin
+          repository: vincbro/flatnet
+          path: flatnet
 
       # gtfs-rt's build script compiles its .proto files, which needs protoc.
       - name: Install protoc
@@ -85,17 +85,17 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      # gtfs-bin is a path dependency (../gtfs-bin), so it is checked out next to this repository.
+      # flatnet is a path dependency (../flatnet), so it is checked out next to this repository.
       - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           path: blaise
 
-      - name: Check out gtfs-bin
+      - name: Check out flatnet
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          repository: vincbro/gtfs-bin
-          path: gtfs-bin
+          repository: vincbro/flatnet
+          path: flatnet
 
       # gtfs-rt's build script compiles its .proto files, which needs protoc.
       - name: Install protoc
@@ -144,17 +144,17 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      # gtfs-bin is a path dependency (../gtfs-bin), so it is checked out next to this repository.
+      # flatnet is a path dependency (../flatnet), so it is checked out next to this repository.
       - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           path: blaise
 
-      - name: Check out gtfs-bin
+      - name: Check out flatnet
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          repository: vincbro/gtfs-bin
-          path: gtfs-bin
+          repository: vincbro/flatnet
+          path: flatnet
 
       # gtfs-rt's build script compiles its .proto files, which needs protoc.
       - name: Install protoc

@@ -7,7 +7,7 @@ What is specific to this project. The shared rules are in `code-standards/`. Whe
 - **Gate** (must pass before any change is done): `just check`
 - **Full gate** (the gate with every property test run for 40000 cases, for after touching `State`, `SpatialGrid` or `ParetoFront`): `just check-full`
 - **Commit-message check** (takes a message file): `just commit-msg <file>`
-- **Benchmarks** (for P-MEASURE): `just bench`. `crates/blaise-core/benches/route.rs` reads `bench.gtfs` from the root of the repository, a network compiled by gtfs-bin from a Stockholm feed (SL). It plans a `short` and a `long` route, forward and backward. Run them before and after a change made for speed, and put the numbers in the commit body.
+- **Benchmarks** (for P-MEASURE): `just bench`. `crates/blaise-core/benches/route.rs` reads `bench.flnt` from the root of the repository, a network compiled by flatnet from a Stockholm feed (SL). It plans a `short` and a `long` route, forward and backward. Run them before and after a change made for speed, and put the numbers in the commit body.
 
 ## Hot paths
 

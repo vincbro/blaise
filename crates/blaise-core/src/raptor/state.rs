@@ -1,6 +1,6 @@
 use std::mem;
 
-use gtfs_bin_core::{
+use flatnet_core::{
     consumer::Consumer,
     models::{Duration, Optional, Sentinel, StopIndex, Time, TripPatternIndex},
 };

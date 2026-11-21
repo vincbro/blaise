@@ -56,7 +56,7 @@ test:
 test-full:
     PROPTEST_CASES=40000 cargo test --workspace --locked
 
-# Time a route query forward and backward on the network in bench.gtfs; criterion compares with
+# Time a route query forward and backward on the network in bench.flnt; criterion compares with
 # the last run. Extra args go to criterion: just bench [args]
 bench *args:
     cargo bench -p blaise-core --bench route -- {{ args }}

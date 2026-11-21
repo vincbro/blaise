@@ -12,7 +12,7 @@ use blaise_core::{
     },
     spatial::SpatialGrid,
 };
-use gtfs_bin_core::{
+use flatnet_core::{
     consumer::Consumer,
     rt::{self, Realtime, RealtimeBuilder},
 };
@@ -28,7 +28,7 @@ fn main() -> anyhow::Result<()> {
     let args: Vec<String> = env::args().collect();
     let path = args
         .get(1)
-        .context("usage: blaise <network.gtfs> [realtime.pb ...]")?;
+        .context("usage: blaise <network.flnt> [realtime.pb ...]")?;
     let file = File::open(path).with_context(|| format!("failed to open {path}"))?;
     // SAFETY: the file is only read, and nothing here modifies it while it is mapped.
     let mmap = unsafe { MmapOptions::new().map(&file) }
@@ -73,10 +73,14 @@ fn format_location(location: &Location, consumer: &Consumer<'_>) -> String {
     match location {
         Location::Stop(stop_index) => {
             let stop = consumer.stop(*stop_index);
-            stop.name.as_option().map_or_else(
-                || consumer.stop_id(stop.id).to_owned(),
-                |name| consumer.string(name).to_owned(),
-            )
+            consumer
+                .stop_info(*stop_index)
+                .name
+                .as_option()
+                .map_or_else(
+                    || consumer.stop_id(stop.id).to_owned(),
+                    |name| consumer.string(name).to_owned(),
+                )
         }
         Location::Coordinate(coordinate) => {
             format!(

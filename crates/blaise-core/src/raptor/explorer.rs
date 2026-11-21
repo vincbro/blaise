@@ -1,8 +1,6 @@
-use gtfs_bin_core::{
+use flatnet_core::{
     consumer::Consumer,
-    models::{
-        BoardingRule, Duration, Optional, StopIndex, StopTime, Time, TripIndex, TripPatternIndex,
-    },
+    models::{BoardingRule, Duration, Optional, StopIndex, Time, TripIndex, TripPatternIndex},
 };
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
@@ -10,7 +8,7 @@ use crate::{
     raptor::{
         self, Day, LiveTime, PatternPosition,
         pareto::{self, ParetoLabel},
-        query::RaptorQuery,
+        query::{RaptorQuery, StopTime},
         state::State,
         update::{Parent, StepKind, Update},
     },
@@ -170,7 +168,7 @@ impl<'a> Explorer<'a> {
         if stop_time.drop_off == BoardingRule::NOT_AVAILABLE {
             return;
         }
-        let Some(arrival) = self.query.arrival(stop_time, day) else {
+        let Some(arrival) = self.query.arrival(&stop_time, day) else {
             return;
         };
         if state.is_dominated_at(stop, arrival.actual, pareto::narrow_cost(ride.cost), false) {
@@ -215,7 +213,7 @@ impl<'a> Explorer<'a> {
         if stop_time.pickup == BoardingRule::NOT_AVAILABLE {
             return;
         }
-        let Some(departure) = self.query.departure(stop_time, day) else {
+        let Some(departure) = self.query.departure(&stop_time, day) else {
             return;
         };
         if state.is_dominated_at(stop, departure.actual, pareto::narrow_cost(ride.cost), true) {
@@ -332,11 +330,11 @@ impl<'a> Explorer<'a> {
     ) -> Option<(TripIndex, Day)> {
         self.runs(pattern)
             .filter_map(|(trip, day)| {
-                let stop_time = self.stop_time(trip, position);
+                let stop_time = self.stop_time_in(pattern, trip, position);
                 if stop_time.pickup == BoardingRule::NOT_AVAILABLE {
                     return None;
                 }
-                let departure = self.query.departure(stop_time, day)?;
+                let departure = self.query.departure(&stop_time, day)?;
                 Some((trip, day, departure.actual))
             })
             .filter(|&(_, _, departure)| departure >= ready_time)
@@ -354,11 +352,11 @@ impl<'a> Explorer<'a> {
     ) -> Option<(TripIndex, Day)> {
         self.runs(pattern)
             .filter_map(|(trip, day)| {
-                let stop_time = self.stop_time(trip, position);
+                let stop_time = self.stop_time_in(pattern, trip, position);
                 if stop_time.drop_off == BoardingRule::NOT_AVAILABLE {
                     return None;
                 }
-                let arrival = self.query.arrival(stop_time, day)?;
+                let arrival = self.query.arrival(&stop_time, day)?;
                 Some((trip, day, arrival.actual))
             })
             .filter(|&(_, _, arrival)| arrival <= ready_time)
@@ -366,18 +364,28 @@ impl<'a> Explorer<'a> {
             .map(|(trip, day, _)| (trip, day))
     }
 
-    fn stop_time(&self, trip: TripIndex, position: PatternPosition) -> &'a StopTime {
-        &self.consumer.stop_times_by_trip(trip)[position.as_usize()]
+    fn stop_time(&self, trip: TripIndex, position: PatternPosition) -> StopTime {
+        let pattern = self.consumer.trip_pattern_by_trip(trip).index;
+        self.stop_time_in(pattern, trip, position)
+    }
+
+    fn stop_time_in(
+        &self,
+        pattern: TripPatternIndex,
+        trip: TripIndex,
+        position: PatternPosition,
+    ) -> StopTime {
+        StopTime::new(self.consumer, pattern, trip, position.as_usize())
     }
 
     /// The arrival of a trip at a position, if the vehicle serves it.
     fn arrival(&self, trip: TripIndex, day: Day, position: PatternPosition) -> Option<LiveTime> {
-        self.query.arrival(self.stop_time(trip, position), day)
+        self.query.arrival(&self.stop_time(trip, position), day)
     }
 
     /// The departure of a trip from a position, if the vehicle serves it.
     fn departure(&self, trip: TripIndex, day: Day, position: PatternPosition) -> Option<LiveTime> {
-        self.query.departure(self.stop_time(trip, position), day)
+        self.query.departure(&self.stop_time(trip, position), day)
     }
 
     fn transfers_forward(

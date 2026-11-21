@@ -14,7 +14,7 @@ A transit router that runs on your machine.
 
 ## How it works
 
-blaise is a library that plans journeys with [RAPTOR](https://www.microsoft.com/en-us/research/wp-content/uploads/2012/01/raptor_alenex.pdf), over a network compiled by [gtfs-bin](https://github.com/vincbro/gtfs-bin). gtfs-bin turns a GTFS feed into one flat file once, and blaise reads it in place.
+blaise is a library that plans journeys with [RAPTOR](https://www.microsoft.com/en-us/research/wp-content/uploads/2012/01/raptor_alenex.pdf), over a network compiled by [flatnet](https://github.com/vincbro/flatnet). flatnet turns a GTFS feed into one flat file once, and blaise reads it in place.
 
 - **Fast routing.** Rounds run on a rayon pool, and a query allocates nothing that outlives it except the itinerary.
 - **Both directions.** Ask for the best trip leaving at a time, or arriving by one.
@@ -23,7 +23,7 @@ blaise is a library that plans journeys with [RAPTOR](https://www.microsoft.com/
 - **Service days.** Weekly calendars and holiday exceptions pick the trips. A trip of the day before that runs past midnight, and tomorrow's first trips, are both in reach. `Itinerary::date` is the date its times count from, and a time past 24:00:00 is on the day after, as in GTFS.
 - **Live.** Delays move the times, canceled trips and skipped stops are not used, and every time in the itinerary carries both the scheduled and the expected value.
 
-Fuzzy stop search lives in gtfs-bin, next to the data it searches.
+Fuzzy stop search lives in flatnet, next to the data it searches.
 
 ## Installation
 
@@ -36,7 +36,7 @@ cargo add blaise-core
 Compile your feed once:
 
 ```bash
-gtfs-bin -i gtfs.zip -o network.gtfs
+flatnet -i gtfs.zip -o network.flnt
 ```
 
 Then map the file and ask for a route:
@@ -51,14 +51,14 @@ use blaise_core::{
     },
     spatial::SpatialGrid,
 };
-use gtfs_bin_core::{
+use flatnet_core::{
     consumer::Consumer,
     models::{Coordinate, Time},
 };
 use memmap2::Mmap;
 
 fn main() -> anyhow::Result<()> {
-    let file = File::open("network.gtfs")?;
+    let file = File::open("network.flnt")?;
     // SAFETY: the file is only read, and nothing modifies it while it is mapped.
     let mmap = unsafe { Mmap::map(&file)? };
     let consumer = Consumer::new(&mmap)?;
@@ -81,10 +81,10 @@ fn main() -> anyhow::Result<()> {
 
 ### Realtime
 
-Apply GTFS-realtime feeds with gtfs-bin and hand the result to the query:
+Apply GTFS-realtime feeds with flatnet and hand the result to the query:
 
 ```rust
-use gtfs_bin_core::rt::{self, Realtime, RealtimeBuilder};
+use flatnet_core::rt::{self, Realtime, RealtimeBuilder};
 
 let mut realtime = Realtime::for_service_date(&consumer, query.date);
 let message = rt::decode_feed(&std::fs::read("TripUpdates.pb")?)?;
@@ -98,7 +98,7 @@ let itinerary = query.with_realtime(&realtime).solve(&consumer, &spatial, &mut s
 The `blaise` binary plans one route and prints the itinerary, which is handy for trying a network out. Every file after the network is a GTFS-realtime feed, applied in order:
 
 ```bash
-cargo run --release -p blaise -- network.gtfs [TripUpdates.pb ...]
+cargo run --release -p blaise -- network.flnt [TripUpdates.pb ...]
 ```
 
 ## Development
@@ -109,7 +109,7 @@ You need [rustup](https://rustup.rs) and [just](https://github.com/casey/just). 
 just toolchain   # the pinned Rust, nightly rustfmt, the cargo tools and the git hooks
 just check       # what CI runs: fmt, clippy, docs, tests, dependencies
 just check-full  # the same, with the property tests run for 40000 cases
-just bench       # a route query timed forward and backward, on bench.gtfs
+just bench       # a route query timed forward and backward, on bench.flnt
 ```
 
 Run `just` on its own to list every recipe. [STANDARDS.local.md](STANDARDS.local.md) holds what is specific to this project: the hot paths and the measured performance problems.

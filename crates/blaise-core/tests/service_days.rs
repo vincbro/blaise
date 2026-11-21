@@ -8,7 +8,7 @@ mod tests {
         Error,
         raptor::{itinerary::Itinerary, query::RaptorQuery},
     };
-    use gtfs_bin_core::{
+    use flatnet_core::{
         consumer::Consumer,
         models::{Date, StopIndex, Time},
     };

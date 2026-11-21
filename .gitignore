@@ -1,6 +1,6 @@
 **/target
 *.zip
-*.gtfs
+*.flnt
 .DS_Store
 .env
 profile.json.gz

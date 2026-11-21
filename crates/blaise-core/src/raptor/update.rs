@@ -1,4 +1,4 @@
-use gtfs_bin_core::models::{StopIndex, Time, TripIndex};
+use flatnet_core::models::{StopIndex, Time, TripIndex};
 
 use crate::raptor::{Day, LiveTime, PatternPosition};
 

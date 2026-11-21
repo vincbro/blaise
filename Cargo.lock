@@ -68,7 +68,7 @@ version = "0.3.0"
 dependencies = [
  "anyhow",
  "blaise-core",
- "gtfs-bin-core",
+ "flatnet-core",
  "memmap2",
 ]
 
@@ -77,8 +77,8 @@ name = "blaise-core"
 version = "0.3.0"
 dependencies = [
  "criterion",
- "gtfs-bin-compiler",
- "gtfs-bin-core",
+ "flatnet-compiler",
+ "flatnet-core",
  "gtfs-rt",
  "jiff",
  "memmap2",
@@ -379,6 +379,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "flatnet-compiler"
+version = "0.2.0"
+dependencies = [
+ "bitvec",
+ "bytemuck",
+ "csv",
+ "flatnet-core",
+ "rayon",
+ "serde_json",
+ "thiserror",
+ "zip",
+]
+
+[[package]]
+name = "flatnet-core"
+version = "0.2.0"
+dependencies = [
+ "bytemuck",
+ "gtfs-rt",
+ "jiff",
+ "memmap2",
+ "prost",
+ "thiserror",
+]
+
+[[package]]
 name = "funty"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -396,31 +422,6 @@ dependencies = [
  "r-efi",
  "rand_core",
  "wasm-bindgen",
-]
-
-[[package]]
-name = "gtfs-bin-compiler"
-version = "0.2.0"
-dependencies = [
- "bitvec",
- "bytemuck",
- "csv",
- "gtfs-bin-core",
- "rayon",
- "thiserror",
- "zip",
-]
-
-[[package]]
-name = "gtfs-bin-core"
-version = "0.2.0"
-dependencies = [
- "bytemuck",
- "gtfs-rt",
- "jiff",
- "memmap2",
- "prost",
- "thiserror",
 ]
 
 [[package]]

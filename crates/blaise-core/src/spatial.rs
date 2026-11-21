@@ -1,4 +1,4 @@
-use gtfs_bin_core::{
+use flatnet_core::{
     consumer::Consumer,
     models::{Coordinate, StopIndex},
 };

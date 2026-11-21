@@ -16,14 +16,14 @@ categories = ["algorithms", "science::geo"]
 bench = false
 
 [dependencies]
-gtfs-bin-core.workspace = true
+flatnet-core.workspace = true
 jiff.workspace = true
 rayon.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true
-gtfs-bin-compiler.workspace = true
+flatnet-compiler.workspace = true
 gtfs-rt.workspace = true
 memmap2.workspace = true
 proptest.workspace = true

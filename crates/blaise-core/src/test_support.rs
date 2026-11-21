@@ -2,8 +2,8 @@
 
 use std::{fmt::Write as _, fs, io::Write as _};
 
-use gtfs_bin_compiler::Compiler;
-use gtfs_bin_core::consumer::Consumer;
+use flatnet_compiler::Compiler;
+use flatnet_core::consumer::Consumer;
 use memmap2::Mmap;
 use tempfile::{NamedTempFile, TempDir};
 
@@ -68,7 +68,9 @@ pub(crate) fn network(stops: &[(f64, f64)], trips: &[Vec<usize>]) -> Network {
         fs::write(dir.path().join(name), text).expect("the feed is writable");
     }
 
-    let bytes = Compiler::new(dir.path()).compile().expect("a valid feed");
+    let bytes = Compiler::new()
+        .compile_gtfs(dir.path())
+        .expect("a valid feed");
     let mut file = NamedTempFile::new().expect("a temp file");
     file.write_all(&bytes).expect("the temp file is writable");
     // SAFETY: the file is private to the test and isn't modified while mapped.

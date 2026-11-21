@@ -1,4 +1,4 @@
-use gtfs_bin_core::{
+use flatnet_core::{
     consumer::Consumer,
     models::{Coordinate, Delay, Duration, Sentinel, StopIndex, Time},
 };
@@ -246,7 +246,7 @@ fn for_each_endpoint(
         QueryLocation::Stop(stop) => visit(*stop, Duration(0)),
         QueryLocation::Stops(stops) => stops
             .iter()
-            .filter(|&&stop| !consumer.trips_by_stop(stop).is_empty())
+            .filter(|&&stop| !consumer.trip_patterns_by_stop(stop).is_empty())
             .for_each(|&stop| visit(stop, Duration(0))),
         QueryLocation::Coordinate(coordinate) => {
             walkable_stops(consumer, spatial, *coordinate, search_radius)
@@ -265,7 +265,7 @@ pub(crate) fn walkable_stops<'a>(
 ) -> impl Iterator<Item = (StopIndex, Duration)> + 'a {
     spatial
         .iter_stops_in_radius(coordinate, radius)
-        .filter(|&stop| !consumer.trips_by_stop(stop).is_empty())
+        .filter(|&stop| !consumer.trip_patterns_by_stop(stop).is_empty())
         .filter_map(move |stop| {
             let position = consumer.stop(stop).coordinate.as_option()?;
             Some((stop, time_to_walk(coordinate, position)))

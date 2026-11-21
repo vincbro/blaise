@@ -18,7 +18,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow.workspace = true
 blaise-core.workspace = true
-gtfs-bin-core.workspace = true
+flatnet-core.workspace = true
 memmap2.workspace = true
 
 [lints]

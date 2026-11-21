@@ -1,8 +1,8 @@
 use std::ops::RangeInclusive;
 
-use gtfs_bin_core::{
+use flatnet_core::{
     consumer::Consumer,
-    models::{Date, Distance, Optional, StopIndex, StopTime, Time, TripIndex},
+    models::{Date, Distance, Optional, StopIndex, Time, TripIndex},
 };
 
 use crate::{
@@ -10,7 +10,7 @@ use crate::{
     raptor::{
         DAY_SECONDS, Day, LiveTime,
         pareto::ParetoLabel,
-        query::{Location, RaptorQuery, TimeDirection},
+        query::{Location, RaptorQuery, StopTime, TimeDirection},
         state::State,
         update::Parent,
     },
@@ -52,10 +52,10 @@ impl LegStop {
             location: Location::Stop(stop),
             departure_time: query
                 .departure(stop_time, day)
-                .unwrap_or_else(|| scheduled(stop_time.departure_time, day)),
+                .unwrap_or_else(|| scheduled(stop_time.timing.departure, day)),
             arrival_time: query
                 .arrival(stop_time, day)
-                .unwrap_or_else(|| scheduled(stop_time.arrival_time, day)),
+                .unwrap_or_else(|| scheduled(stop_time.timing.arrival, day)),
             distance_traveled: stop_time.distance_traveled,
         }
     }
@@ -289,9 +289,15 @@ impl Trace<'_> {
         let stops = self.consumer.stop_sequence_by_trip_pattern(pattern.index);
         let (boarding, alighting) = (stops[*positions.start()], stops[*positions.end()]);
 
-        let stop_times = self.consumer.stop_times_by_trip(trip);
         let leg_stops = positions
-            .map(|position| LegStop::new(self.query, stops[position], &stop_times[position], day))
+            .map(|position| {
+                LegStop::new(
+                    self.query,
+                    stops[position],
+                    &StopTime::new(self.consumer, pattern.index, trip, position),
+                    day,
+                )
+            })
             .collect();
         legs.push(Leg {
             from: Location::Stop(boarding),

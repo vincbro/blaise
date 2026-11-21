@@ -19,8 +19,8 @@ readme = "README.md"
 anyhow = "1.0.104"
 blaise-core = { path = "crates/blaise-core", version = "=0.3.0" }
 criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support"] }
-gtfs-bin-compiler = { version = "0.2.0", path = "../gtfs-bin/crates/gtfs-bin-compiler" }
-gtfs-bin-core = { version = "0.2.0", path = "../gtfs-bin/crates/gtfs-bin-core" }
+flatnet-compiler = { version = "0.2.0", path = "../flatnet/crates/flatnet-compiler" }
+flatnet-core = { version = "0.2.0", path = "../flatnet/crates/flatnet-core" }
 gtfs-rt = "0.5.0"
 jiff = "0.2.46"
 memmap2 = "0.9.10"

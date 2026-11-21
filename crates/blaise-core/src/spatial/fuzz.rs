@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use gtfs_bin_core::models::Coordinate;
+use flatnet_core::models::Coordinate;
 use proptest::{collection::vec, prelude::*};
 
 use super::SpatialGrid;

@@ -1,6 +1,9 @@
-use gtfs_bin_core::{
+use flatnet_core::{
     consumer::Consumer,
-    models::{Coordinate, Date, StopIndex, StopTime, Time},
+    models::{
+        BoardingRule, Coordinate, Date, Distance, Optional, StopIndex, StopTimeIndex, Time, Timing,
+        TripIndex, TripPatternIndex,
+    },
     rt::Realtime,
 };
 use jiff::Zoned;
@@ -10,6 +13,39 @@ use crate::{
     raptor::{self, Day, LiveTime, itinerary::Itinerary, state::State},
     spatial::SpatialGrid,
 };
+
+/// A trip's visit to one stop of its pattern: its times, what the stop allows, and where the
+/// visit sits in the file, which is what a [`Realtime`] is indexed by.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct StopTime {
+    pub(crate) trip: TripIndex,
+    pub(crate) index: StopTimeIndex,
+    pub(crate) timing: Timing,
+    pub(crate) pickup: BoardingRule,
+    pub(crate) drop_off: BoardingRule,
+    pub(crate) distance_traveled: Optional<Distance>,
+}
+
+impl StopTime {
+    /// The visit of `trip`, which runs `pattern`, at `position` in that pattern.
+    pub(crate) fn new(
+        consumer: &Consumer<'_>,
+        pattern: TripPatternIndex,
+        trip: TripIndex,
+        position: usize,
+    ) -> Self {
+        let first = consumer.trip(trip).stop_times.start as usize;
+        let rule = &consumer.pattern_stops_by_trip_pattern(pattern)[position];
+        Self {
+            trip,
+            index: StopTimeIndex::from(first + position),
+            timing: consumer.timings_by_trip(trip)[position],
+            pickup: rule.pickup,
+            drop_off: rule.drop_off,
+            distance_traveled: rule.distance_traveled,
+        }
+    }
+}
 
 /// Where a journey starts or ends, as the caller states it.
 #[derive(Debug, Clone, PartialEq)]
@@ -190,9 +226,11 @@ impl<'a> RaptorQuery<'a> {
     /// arrival.
     #[must_use]
     pub(crate) fn arrival(&self, stop_time: &StopTime, day: Day) -> Option<LiveTime> {
-        let scheduled = stop_time.arrival_time.as_option()?;
+        let scheduled = stop_time.timing.arrival.as_option()?;
         let actual = match self.live(day) {
-            Some(realtime) => realtime.arrival_time(stop_time)?,
+            Some(realtime) => {
+                realtime.arrival_time(stop_time.trip, stop_time.index, stop_time.timing)?
+            }
             None => scheduled,
         };
         Some(LiveTime::new(scheduled, actual).shifted(day.shift()))
@@ -201,9 +239,11 @@ impl<'a> RaptorQuery<'a> {
     /// The departure from a stop time of a trip on `day`, like [`Self::arrival`].
     #[must_use]
     pub(crate) fn departure(&self, stop_time: &StopTime, day: Day) -> Option<LiveTime> {
-        let scheduled = stop_time.departure_time.as_option()?;
+        let scheduled = stop_time.timing.departure.as_option()?;
         let actual = match self.live(day) {
-            Some(realtime) => realtime.departure_time(stop_time)?,
+            Some(realtime) => {
+                realtime.departure_time(stop_time.trip, stop_time.index, stop_time.timing)?
+            }
             None => scheduled,
         };
         Some(LiveTime::new(scheduled, actual).shifted(day.shift()))
@@ -237,6 +277,7 @@ impl<'a> RaptorQuery<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support;
 
     #[test]
     fn the_time_of_a_direction_is_the_time_it_holds() {
@@ -272,6 +313,32 @@ mod tests {
             QueryLocation::Stops(vec![StopIndex(1), StopIndex(2)].into()).resolve(StopIndex(2)),
             Location::Stop(StopIndex(2)),
             "a set of stops resolves to the one the route uses"
+        );
+    }
+
+    #[test]
+    fn a_stop_time_has_the_timing_and_position_of_its_visit() {
+        let network = test_support::network(&[(59.0, 18.0), (59.1, 18.0)], &[vec![0, 1]]);
+        let consumer = network.consumer();
+        let trip = TripIndex(0);
+        let pattern = consumer.trip_pattern_by_trip(trip).index;
+
+        let stop_time = StopTime::new(&consumer, pattern, trip, 1);
+
+        assert_eq!(
+            stop_time.index,
+            StopTimeIndex::from(consumer.trip(trip).stop_times.start as usize + 1),
+            "the second visit follows the first in the file"
+        );
+        assert_eq!(
+            stop_time.timing,
+            consumer.timings_by_trip(trip)[1],
+            "the timing is the trip's second"
+        );
+        assert_eq!(
+            stop_time.drop_off,
+            BoardingRule::default(),
+            "the test feed lets passengers off"
         );
     }
 }
