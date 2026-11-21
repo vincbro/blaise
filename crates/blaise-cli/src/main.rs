@@ -1,12 +1,13 @@
 //! Plans a journey over a compiled GTFS network from the command line.
 
-use std::{env, fs, fs::File, time::Instant};
+use std::{env, fs, fs::File, str::FromStr, time::Instant};
 
 use anyhow::Context;
 use blaise_core::{
     raptor::{
-        self, LiveTime,
+        LiveTime,
         itinerary::{Itinerary, Leg, LegType},
+        journeys::Journeys,
         query::{Location, QueryLocation, RaptorQuery},
         state::State,
     },
@@ -14,21 +15,74 @@ use blaise_core::{
 };
 use flatnet_core::{
     consumer::Consumer,
+    models::Duration,
     rt::{self, Realtime, RealtimeBuilder},
 };
 use memmap2::MmapOptions;
 
 const RULE: &str = "=========================================================";
 
+const USAGE: &str = "usage: blaise <network.flnt> [realtime.pb ...] \
+[--window <minutes>] [--alternatives <count>] [--boarding-penalty <seconds>]";
+
+/// What the command line asks for.
+struct Options {
+    network: String,
+    feeds: Vec<String>,
+    /// Plan every departure in this many minutes after the query's, not just the first.
+    window_minutes: Option<u32>,
+    /// Plan this many journeys that avoid each other's main vehicle.
+    alternatives: Option<usize>,
+    boarding_penalty: Option<f64>,
+}
+
+impl Options {
+    fn parse(args: impl Iterator<Item = String>) -> anyhow::Result<Self> {
+        let mut args = args.skip(1);
+        let mut positional = Vec::new();
+        let mut window_minutes = None;
+        let mut alternatives = None;
+        let mut boarding_penalty = None;
+        while let Some(arg) = args.next() {
+            match arg.as_str() {
+                "--window" => window_minutes = Some(flag_value(&mut args, &arg)?),
+                "--alternatives" => alternatives = Some(flag_value(&mut args, &arg)?),
+                "--boarding-penalty" => boarding_penalty = Some(flag_value(&mut args, &arg)?),
+                _ => positional.push(arg),
+            }
+        }
+        let mut positional = positional.into_iter();
+        let network = positional.next().context(USAGE)?;
+        Ok(Self {
+            network,
+            feeds: positional.collect(),
+            window_minutes,
+            alternatives,
+            boarding_penalty,
+        })
+    }
+}
+
+/// The value after `flag`, read as the type the flag takes.
+fn flag_value<T: FromStr>(
+    args: &mut impl Iterator<Item = String>,
+    flag: &str,
+) -> anyhow::Result<T> {
+    let value = args
+        .next()
+        .with_context(|| format!("{flag} needs a value"))?;
+    value
+        .parse()
+        .map_err(|_| anyhow::anyhow!("{flag} cannot be {value}"))
+}
+
 #[allow(
     unsafe_code,
     reason = "mapping a file is unsafe in memmap2, and this file is not modified"
 )]
 fn main() -> anyhow::Result<()> {
-    let args: Vec<String> = env::args().collect();
-    let path = args
-        .get(1)
-        .context("usage: blaise <network.flnt> [realtime.pb ...]")?;
+    let options = Options::parse(env::args())?;
+    let path = &options.network;
     let file = File::open(path).with_context(|| format!("failed to open {path}"))?;
     // SAFETY: the file is only read, and nothing here modifies it while it is mapped.
     let mmap = unsafe { MmapOptions::new().map(&file) }
@@ -38,35 +92,72 @@ fn main() -> anyhow::Result<()> {
         Consumer::new(&mmap).with_context(|| format!("{path} is not a valid network file"))?;
     let spatial = SpatialGrid::new(&consumer);
 
-    let query = RaptorQuery::new(
+    let mut query = RaptorQuery::new(
         QueryLocation::Coordinate((59.5836, 17.8938).into()),
         QueryLocation::Coordinate((59.3397, 18.0371).into()),
     );
+    if let Some(penalty) = options.boarding_penalty {
+        query = query.with_boarding_penalty(penalty);
+    }
 
     // Every file after the network is a GTFS-realtime feed, applied in order.
     let mut realtime = Realtime::for_service_date(&consumer, query.date);
     let builder = RealtimeBuilder::new(&consumer);
-    for feed_path in &args[2..] {
+    for feed_path in &options.feeds {
         let bytes = fs::read(feed_path).with_context(|| format!("failed to read {feed_path}"))?;
         let message =
             rt::decode_feed(&bytes).with_context(|| format!("failed to decode {feed_path}"))?;
         let report = builder.apply([message].into_iter(), &mut realtime);
         println!("{feed_path}: {report:?}");
     }
-    let query = if args.len() > 2 {
-        query.with_realtime(&realtime)
-    } else {
+    let query = if options.feeds.is_empty() {
         query
+    } else {
+        query.with_realtime(&realtime)
     };
 
     let mut state = State::new(&consumer);
     let started = Instant::now();
-    let itinerary =
-        raptor::solve(query, &consumer, &spatial, &mut state).context("no route was found")?;
-    println!("Solving route query took {:?}", started.elapsed());
+    let journeys = match (options.alternatives, options.window_minutes) {
+        (Some(count), _) => query.alternatives(count, &consumer, &spatial, &mut state),
+        (None, Some(minutes)) => {
+            query.journeys_within(Duration(minutes * 60), &consumer, &spatial, &mut state)
+        }
+        (None, None) => query.journeys(&consumer, &spatial, &mut state),
+    }
+    .context("no route was found")?;
+    let elapsed = started.elapsed();
 
-    print_itinerary(&itinerary, &consumer);
+    // `ESC c` resets the terminal, so the result replaces whatever the last run printed.
+    print!("\x1bc");
+    println!("Solving route query took {elapsed:?}");
+    print_summary(&journeys);
+    if let Some(itinerary) = journeys.earliest_arrival() {
+        print_itinerary(itinerary, &consumer);
+    }
     Ok(())
+}
+
+/// One line for each journey found, to choose between before reading the first one in full.
+fn print_summary(journeys: &Journeys) {
+    println!(
+        "\n{} journeys found, the one that arrives first is shown in full\n",
+        journeys.itineraries.len()
+    );
+    println!("  leave     arrive    duration  changes  walking");
+    for itinerary in &journeys.itineraries {
+        let (Some(departure), Some(arrival)) = (itinerary.departure(), itinerary.arrival()) else {
+            continue;
+        };
+        println!(
+            "  {}  {}  {:>5} min  {:>7}  {:>4} min",
+            departure.actual,
+            arrival.actual,
+            itinerary.duration().0 / 60,
+            itinerary.changes(),
+            itinerary.walking().0 / 60,
+        );
+    }
 }
 
 fn format_location(location: &Location, consumer: &Consumer<'_>) -> String {
@@ -103,8 +194,6 @@ fn format_delay(time: LiveTime) -> String {
 }
 
 fn print_itinerary(itinerary: &Itinerary, consumer: &Consumer<'_>) {
-    // `ESC c` resets the terminal, so the itinerary replaces whatever the last run printed.
-    print!("\x1bc");
     println!("\n{RULE}\n🗺️  \x1b[1mJOURNEY ITINERARY\x1b[0m\n{RULE}\n");
 
     let (Some(first), Some(last)) = (itinerary.legs.first(), itinerary.legs.last()) else {
