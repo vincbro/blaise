@@ -141,6 +141,37 @@ impl Itinerary {
         }
     }
 
+    /// The latest time, in seconds from midnight of `base`, the rider can leave the start and
+    /// still make the journey: the first vehicle's departure less the walking and transfers
+    /// before it. A journey that rides nothing leaves when it starts.
+    pub(crate) fn leave_by(&self, base: Date) -> Option<u32> {
+        let shift = self.date.0.saturating_sub(base.0) * DAY_SECONDS;
+        let first_ride = self
+            .legs
+            .iter()
+            .position(|leg| matches!(leg.leg_type, LegType::Transit(_)));
+        let Some(ride) = first_ride else {
+            return Some(self.departure()?.actual.0 + shift);
+        };
+        let before: u32 = self.legs[..ride]
+            .iter()
+            .map(|leg| {
+                leg.arrival_time
+                    .actual
+                    .0
+                    .saturating_sub(leg.departure_time.actual.0)
+            })
+            .sum();
+        let departure = self.legs[ride].departure_time.actual.0;
+        Some(departure.saturating_sub(before) + shift)
+    }
+
+    /// The arrival in seconds from midnight of `base`.
+    pub(crate) fn arrival_from(&self, base: Date) -> Option<u32> {
+        let shift = self.date.0.saturating_sub(base.0) * DAY_SECONDS;
+        Some(self.arrival()?.actual.0 + shift)
+    }
+
     /// Whether both leave and arrive at the same times by as many vehicles.
     pub(crate) fn same_journey(&self, other: &Self) -> bool {
         self.rides() == other.rides()

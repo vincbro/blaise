@@ -227,6 +227,79 @@ pub fn solve_all(
     Ok(found)
 }
 
+/// The journeys that leave from the query's departure time to `window` after it, without those
+/// another beats by leaving later, arriving sooner and boarding no more vehicles.
+pub fn solve_window(
+    query: &RaptorQuery<'_>,
+    window: Duration,
+    consumer: &Consumer<'_>,
+    spatial: &SpatialGrid,
+    state: &mut State,
+) -> Result<Vec<Itinerary>> {
+    let TimeDirection::Departure(start) = query.time_direction else {
+        return Err(Error::WindowNeedsDeparture);
+    };
+    let end = start.0.saturating_add(window.0);
+    let mut found: Vec<(Itinerary, [u32; 2])> = Vec::new();
+    let mut from = start;
+    while from.0 <= end {
+        state.reset();
+        let Ok(itineraries) = solve_all(query.leaving_at(from), consumer, spatial, state) else {
+            break;
+        };
+        let mut next = u32::MAX;
+        for itinerary in itineraries {
+            let (Some(leave), Some(arrive)) = (
+                itinerary.leave_by(query.date),
+                itinerary.arrival_from(query.date),
+            ) else {
+                continue;
+            };
+            next = next.min(leave.saturating_add(1));
+            if leave <= end {
+                found.push((itinerary, [leave, arrive]));
+            }
+        }
+        // A journey with no vehicle leaves when asked, so a later start finds nothing new.
+        from = Time(next.max(from.0.saturating_add(1)));
+    }
+    if found.is_empty() {
+        return Err(Error::NoRoute);
+    }
+    Ok(unbeaten(found))
+}
+
+/// The journeys of `found` that no other beats, in order of leaving. Each has when the rider must
+/// leave and when it arrives.
+fn unbeaten(mut found: Vec<(Itinerary, [u32; 2])>) -> Vec<Itinerary> {
+    let beats = |other: &(Itinerary, [u32; 2]), this: &(Itinerary, [u32; 2])| {
+        let (leave, arrive, rides) = (other.1[0], other.1[1], other.0.rides());
+        let no_worse = leave >= this.1[0] && arrive <= this.1[1] && rides <= this.0.rides();
+        let same = leave == this.1[0] && arrive == this.1[1] && rides == this.0.rides();
+        no_worse && !same
+    };
+    let mut kept: Vec<(Itinerary, [u32; 2])> = Vec::new();
+    for candidate in found.drain(..) {
+        let duplicate = kept
+            .iter()
+            .any(|other| other.1 == candidate.1 && other.0.rides() == candidate.0.rides());
+        if !duplicate {
+            kept.push(candidate);
+        }
+    }
+    let all: Vec<bool> = kept
+        .iter()
+        .map(|this| !kept.iter().any(|other| beats(other, this)))
+        .collect();
+    let mut result: Vec<(Itinerary, [u32; 2])> = kept
+        .into_iter()
+        .zip(all)
+        .filter_map(|(entry, unbeaten)| unbeaten.then_some(entry))
+        .collect();
+    result.sort_by_key(|(itinerary, [leave, _])| (*leave, itinerary.rides()));
+    result.into_iter().map(|(itinerary, _)| itinerary).collect()
+}
+
 fn solve_core(
     query: &RaptorQuery<'_>,
     consumer: &Consumer<'_>,

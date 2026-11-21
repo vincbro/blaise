@@ -1,8 +1,8 @@
 use flatnet_core::{
     consumer::Consumer,
     models::{
-        BoardingRule, Coordinate, Date, Distance, Optional, StopIndex, StopTimeIndex, Time, Timing,
-        TripIndex, TripPatternIndex,
+        BoardingRule, Coordinate, Date, Distance, Duration, Optional, StopIndex, StopTimeIndex,
+        Time, Timing, TripIndex, TripPatternIndex,
     },
     rt::Realtime,
 };
@@ -288,6 +288,33 @@ impl<'a> RaptorQuery<'a> {
         state: &mut State,
     ) -> Result<Journeys> {
         raptor::solve_all(self, consumer, spatial, state).map(Journeys::new)
+    }
+
+    /// Plans the journey from the departure time and again from each later time up to `window`
+    /// after it, and returns the journeys none of which another beats: one that leaves later,
+    /// arrives sooner and boards no more vehicles. They come in order of leaving.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the query is for an arrival, or if no route reaches the destination.
+    pub fn journeys_within(
+        self,
+        window: Duration,
+        consumer: &Consumer<'_>,
+        spatial: &SpatialGrid,
+        state: &mut State,
+    ) -> Result<Journeys> {
+        raptor::solve_window(&self, window, consumer, spatial, state).map(Journeys::new)
+    }
+
+    /// The same journey leaving at `time`.
+    pub(crate) fn leaving_at(&self, time: Time) -> Self {
+        Self {
+            origin: self.origin.clone(),
+            destination: self.destination.clone(),
+            time_direction: TimeDirection::Departure(time),
+            ..*self
+        }
     }
 
     /// The live data for trips on `day`. A `Realtime` made for a service date describes that date
