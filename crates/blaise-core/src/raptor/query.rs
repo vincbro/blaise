@@ -6,7 +6,7 @@ use flatnet_core::{
     },
     rt::Realtime,
 };
-use jiff::Zoned;
+use jiff::ZonedDateTime;
 
 use crate::{
     Result,
@@ -153,7 +153,7 @@ impl<'a> RaptorQuery<'a> {
     #[must_use]
     pub fn new(origin: QueryLocation, destination: QueryLocation) -> Self {
         // The local day and time of day, as the agency counts them when it is in this zone.
-        let now = Zoned::now();
+        let now = ZonedDateTime::now();
         let seconds =
             i64::from(now.hour()) * 3600 + i64::from(now.minute()) * 60 + i64::from(now.second());
         let date = Date::from_year_month_day(
